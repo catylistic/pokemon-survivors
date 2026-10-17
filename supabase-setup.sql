@@ -66,3 +66,5 @@ create policy "anyone can add a score" on public.scores
   for insert to anon with check (true);
 
 grant select, insert on public.scores to anon;
+-- belt and braces: the policies above already block edits and deletes
+revoke update, delete, truncate on public.scores from anon;
