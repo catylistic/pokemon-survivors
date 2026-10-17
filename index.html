@@ -164,7 +164,7 @@
       <div><b>Type matchups matter:</b> super effective hits do 2× (or 4×), resisted hits do ½×. Enemies' attacks follow the chart too.</div>
       <div><b>STAB:</b> moves that share your Pokémon's type do 1.5× damage.</div>
       <div><b>Evolve:</b> you evolve at Lv 12 and Lv 28. Max a move to Lv 6 while holding its type item to unlock its evolved form.</div>
-      <div><b>Shiny Pokémon</b> drop Poké Balls. Grab one to catch it as an ally (up to 4).</div>
+      <div><b>Shiny Pokémon</b> drop Poké Balls. Grab one to catch it as an ally (up to 4). Your own starter has a 1 in 50 chance to be shiny!</div>
       <div><b>Pause:</b> Esc, P, the II button or Start. Pick level-up options with 1 / 2 / 3 (or the stick + A). <b>M</b> mutes sound.</div>
     </div>
   </div>
@@ -265,6 +265,148 @@ function whiteVersion(img) {
 }
 
 /* =========================================================================
+   Animated sprites: the Pokémon Showdown GIFs. A canvas can only draw a
+   GIF's first frame, so they're decoded here into frames (a small GIF
+   decoder, below). Until a GIF is ready, or if it doesn't exist, the static
+   sprite is drawn instead.
+   ========================================================================= */
+const animURL = (id, shiny, back) => `${SPR_BASE}pokemon/other/showdown/${back ? 'back/' : ''}${shiny ? 'shiny/' : ''}${id}.gif`;
+let animCache = {}, lastAnimRegion = -1;
+const animQueue = [];
+function getAnim(id, shiny, back) {
+  const key = `${id}${shiny ? 's' : ''}${back ? 'b' : ''}`;
+  let a = animCache[key];
+  if (!a) {
+    a = animCache[key] = { state:'loading' };
+    fetch(animURL(id, shiny, back))
+      .then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
+      .then(buf => animQueue.push([a, buf]))
+      .catch(() => { a.state = 'failed'; });
+  }
+  return a;
+}
+// decode a few GIFs per frame, within a time budget, so the game doesn't stutter
+function pumpAnimQueue() {
+  const t0 = performance.now();
+  while (animQueue.length && performance.now() - t0 < 6) {
+    const [a, buf] = animQueue.shift();
+    try { Object.assign(a, decodeGif(buf)); a.state = 'ready'; } catch (e) { a.state = 'failed'; }
+  }
+}
+function frameAt(a, ms) {
+  let t = ms % a.total, i = 0;
+  while (i < a.cum.length - 1 && t >= a.cum[i]) i++;
+  return a.frames[i];
+}
+
+// GIF89a decoder -> { frames:[canvas], cum:[end time ms], total, w, h }, cropped to the sprite
+function decodeGif(buffer) {
+  const d = new Uint8Array(buffer);
+  if (d[0] !== 0x47 || d[1] !== 0x49 || d[2] !== 0x46) throw new Error('not a gif');
+  let p = 6;
+  const u16 = () => { const v = d[p] | (d[p + 1] << 8); p += 2; return v; };
+  const W = u16(), H = u16(), gf = d[p++]; p += 2;
+  let gct = null;
+  if (gf & 0x80) { const n = 3 * (1 << ((gf & 7) + 1)); gct = d.subarray(p, p + n); p += n; }
+  const px = new Uint8ClampedArray(W * H * 4);   // the composited image
+  const snaps = [], delays = [];
+  let delay = 100, disposal = 0, trans = -1;
+  let x0 = W, y0 = H, x1 = 0, y1 = 0;            // union of opaque pixels across frames
+  while (p < d.length) {
+    const b = d[p++];
+    if (b === 0x21) {                               // extension
+      const label = d[p++];
+      if (label === 0xF9) {                         // graphic control: delay, disposal, transparency
+        p++; const f = d[p++];
+        disposal = (f >> 2) & 7; const cs = u16(); delay = cs < 2 ? 100 : cs * 10;
+        const ti = d[p++]; trans = f & 1 ? ti : -1; p++;
+      } else { while (d[p]) p += d[p] + 1; p++; }
+    } else if (b === 0x2C) {                        // image
+      const fx = u16(), fy = u16(), fw = u16(), fh = u16(), lf = d[p++];
+      let ct = gct;
+      if (lf & 0x80) { const n = 3 * (1 << ((lf & 7) + 1)); ct = d.subarray(p, p + n); p += n; }
+      const minCode = d[p++];
+      let len = 0, q = p;
+      while (d[q]) { len += d[q]; q += d[q] + 1; }
+      const data = new Uint8Array(len);
+      let o = 0;
+      while (d[p]) { data.set(d.subarray(p + 1, p + 1 + d[p]), o); o += d[p]; p += d[p] + 1; }
+      p++;
+      const idx = lzw(data, minCode, fw * fh);
+      const saved = disposal === 3 ? px.slice() : null;
+      const rows = lf & 0x40 ? interlaceRows(fh) : null;
+      for (let r = 0; r < fh; r++) {
+        const y = fy + (rows ? rows[r] : r);
+        if (y >= H) continue;
+        for (let c = 0; c < fw; c++) {
+          const ci = idx[r * fw + c], x = fx + c;
+          if (ci === trans || x >= W || !ct) continue;
+          const k = (y * W + x) * 4;
+          px[k] = ct[ci * 3]; px[k + 1] = ct[ci * 3 + 1]; px[k + 2] = ct[ci * 3 + 2]; px[k + 3] = 255;
+          if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+        }
+      }
+      snaps.push(px.slice()); delays.push(delay);
+      if (disposal === 2) { for (let y = fy; y < Math.min(H, fy + fh); y++) px.fill(0, (y * W + fx) * 4, (y * W + Math.min(W, fx + fw)) * 4); }
+      else if (disposal === 3 && saved) px.set(saved);
+      delay = 100; disposal = 0; trans = -1;
+    } else break;                                   // 0x3B trailer (or junk)
+  }
+  if (!snaps.length || x1 < x0) throw new Error('empty gif');
+  // keep at most ~40 frames (merging the delays of skipped ones) to save memory
+  const step = Math.ceil(snaps.length / 40), bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+  const frames = [], cum = [];
+  let total = 0;
+  for (let i = 0; i < snaps.length; i += step) {
+    const c = document.createElement('canvas'); c.width = bw; c.height = bh;
+    c.getContext('2d').putImageData(new ImageData(snaps[i], W, H), -x0, -y0, x0, y0, bw, bh);
+    for (let j = i; j < Math.min(snaps.length, i + step); j++) total += delays[j];
+    frames.push(c); cum.push(total);
+  }
+  return { frames, cum, total, w:bw, h:bh };
+}
+function interlaceRows(h) {
+  const rows = [];
+  for (const [start, stepY] of [[0, 8], [4, 8], [2, 4], [1, 2]]) for (let y = start; y < h; y += stepY) rows.push(y);
+  return rows;
+}
+function lzw(data, minSize, count) {
+  const out = new Uint8Array(count), prefix = new Uint16Array(4096), suffix = new Uint8Array(4096), stack = new Uint8Array(4097);
+  const clear = 1 << minSize, eoi = clear + 1;
+  for (let c = 0; c < clear; c++) suffix[c] = c;
+  let size = minSize + 1, mask = (1 << size) - 1, next = eoi + 1, old = -1, first = 0, op = 0, acc = 0, bits = 0, i = 0;
+  while (op < count) {
+    while (bits < size) { if (i >= data.length) return out; acc |= data[i++] << bits; bits += 8; }
+    let code = acc & mask; acc >>>= size; bits -= size;
+    if (code === clear) { size = minSize + 1; mask = (1 << size) - 1; next = eoi + 1; old = -1; continue; }
+    if (code === eoi) break;
+    if (old === -1) { out[op++] = suffix[code]; old = first = code; continue; }
+    const cur = code;
+    let sp = 0;
+    if (code >= next) { stack[sp++] = first; code = old; }
+    while (code > eoi) { stack[sp++] = suffix[code]; code = prefix[code]; }
+    first = suffix[code]; stack[sp++] = first;
+    while (sp && op < count) out[op++] = stack[--sp];
+    if (next < 4096) { prefix[next] = old; suffix[next] = first; next++; if (next === (1 << size) && size < 12) { size++; mask = (1 << size) - 1; } }
+    old = cur;
+  }
+  return out;
+}
+// White silhouette of a frame (hit flash, evolution). Made on one shared scratch canvas that only
+// ever grows (resizing a canvas is slow), then drawn from its top-left corner.
+const scratch = document.createElement('canvas'), sctx = scratch.getContext('2d');
+scratch.width = scratch.height = 256;
+function drawWhite(src, dx, dy) {
+  const w = src.width, h = src.height;
+  if (w > scratch.width || h > scratch.height) { scratch.width = Math.max(scratch.width, w); scratch.height = Math.max(scratch.height, h); }
+  sctx.clearRect(0, 0, w, h);
+  sctx.drawImage(src, 0, 0);
+  sctx.globalCompositeOperation = 'source-in'; sctx.fillStyle = '#fff'; sctx.fillRect(0, 0, w, h);
+  sctx.globalCompositeOperation = 'source-over';
+  ctx.drawImage(scratch, 0, 0, w, h, dx, dy, w, h);
+}
+
+/* =========================================================================
    Types
    ========================================================================= */
 const TC = {
@@ -310,6 +452,7 @@ const typeBadge = t => `<span class="ty" style="background:${TC[t]}">${t}</span>
    Starters (the player)
    ========================================================================= */
 const EVO_LEVELS = [12, 28];
+const SHINY_ODDS = 50; // 1 in 50 runs, your starter is shiny (it stays shiny when it evolves)
 const STARTERS = {
   bulbasaur:  { stages:[[1,'Bulbasaur'],[2,'Ivysaur'],[3,'Venusaur']], types:[['grass','poison'],['grass','poison'],['grass','poison']], hp:120, spd:150, move:'razorLeaf' },
   charmander: { stages:[[4,'Charmander'],[5,'Charmeleon'],[6,'Charizard']], types:[['fire'],['fire'],['fire','flying']], hp:100, spd:165, move:'ember' },
@@ -554,6 +697,7 @@ const MOVES = {
         const x = P.x + Math.cos(a) * s.radius, y = P.y + Math.sin(a) * s.radius;
         m.leaves.push({ x, y, a });
         hitArea(x, y, 12, s.dmg, 'grass', { key:'rl' + i, cd:.45, kbFrom:[P.x, P.y, 60] });
+        if (Math.random() < 5*dt) emit(x, y, 1, { color:m.evo ? '#a8f070' : '#68b840', shape:'leaf', size:4, spread:25, life:.5 });
       }
     }
   },
@@ -568,6 +712,7 @@ const MOVES = {
         const t = ts[i];
         hitArea(t.x, t.y, s.radius, s.dmg, 'electric');
         addFx({ kind:'bolt', x:t.x, y:t.y, r:s.radius, life:.25, max:.25, pts:boltPts(t.x, t.y) });
+        emit(t.x, t.y, 10, { color:Math.random() < .5 ? '#fff8a0' : '#f7d02c', spread:260, life:.3, size:3, shape:'streak', add:true, drag:5 });
       }
     }
   },
@@ -595,6 +740,10 @@ const MOVES = {
       if (m.t > 0) return;
       m.t = .5 * G.stat.cd;
       hitArea(P.x, P.y, s.radius, s.dmg, 'psychic', { onHit:e => { e.slowT = .7; e.slowF = s.slow; } });
+      for (let i = 0; i < 6; i++) { // pink motes drawn in toward you
+        const a = Math.random()*Math.PI*2;
+        emit(P.x + Math.cos(a)*s.radius, P.y + Math.sin(a)*s.radius, 1, { color:m.evo ? '#d070ff' : '#ff80b0', spread:5, vx:-Math.cos(a)*s.radius*1.4, vy:-Math.sin(a)*s.radius*1.4, drag:0, life:.5, size:3, add:true });
+      }
     }
   },
   rockSlide: {
@@ -655,7 +804,8 @@ const MOVES = {
       for (const o of offs) {
         const a = base + o;
         hitArea(P.x, P.y, s.radius, s.dmg, 'fighting', { arc:[a, .95], kbFrom:[P.x, P.y, 180] });
-        addFx({ kind:'arc', x:P.x, y:P.y, a, r:s.radius, life:.18, max:.18 });
+        addFx({ kind:'arc', x:P.x, y:P.y, a, r:s.radius, life:.2, max:.2 });
+        emit(P.x + Math.cos(a)*s.radius*.75, P.y + Math.sin(a)*s.radius*.75, 6, { color:'#ffd080', spread:140, life:.25, size:3, shape:'streak', add:true, drag:6 });
       }
     }
   },
@@ -691,6 +841,7 @@ const MOVES = {
     stats:(l, e) => ({ dmg:(16 + 6*(l-1)) * (e?2:1), cd:2.4 - .12*(l-1), radius:e?250:110 + 15*(l-1) }),
     fire(m, s) {
       G.zones.push({ kind:'quake', x:P.x, y:P.y, r:0, maxR:s.radius, life:.35, max:.35, dmg:s.dmg, type:'dark', color:'90,40,120', hit:new Set() });
+      emit(P.x, P.y, 18, { color:Math.random() < .5 ? '#2a1838' : '#5a3070', spread:s.radius*2.2, life:.35, size:5, drag:5 });
     }
   },
   dragonPulse: {
@@ -713,6 +864,7 @@ const MOVES = {
     fire(m, s) {
       hitArea(P.x, P.y, s.radius, s.dmg, 'fairy');
       addFx({ kind:'flash', x:P.x, y:P.y, r:s.radius, life:.4, max:.4 });
+      emit(P.x, P.y, 24, { color:Math.random() < .5 ? '#ffd0f0' : '#ffffff', spread:s.radius*2, life:.45, size:3, add:true, drag:4 });
     }
   },
   swift: {
@@ -832,8 +984,13 @@ const Online = {
     const row = {
       name:(e.name || 'Trainer').slice(0, 14), region:e.region || 0, starter:e.starter, mon_id:e.id, mon:e.mon.slice(0, 20),
       score:clamp(e.score, 2e7), t:clamp(e.t, 7200), level:Math.max(1, clamp(e.level, 500)), kills:clamp(e.kills, 2e6), won:!!e.won,
+      shiny:!!e.shiny,
     };
-    const r = await fetch(ONLINE.url + '/rest/v1/scores', { method:'POST', headers:this.headers({ Prefer:'return=representation' }), body:JSON.stringify(row), keepalive:true });
+    const post = body => fetch(ONLINE.url + '/rest/v1/scores', { method:'POST', headers:this.headers({ Prefer:'return=representation' }), body:JSON.stringify(body), keepalive:true });
+    let r = await post(row);
+    if (r.status === 400 && (await r.clone().json().catch(() => ({}))).code === 'PGRST204') {
+      delete row.shiny; r = await post(row); // database without the newer "shiny" column
+    }
     if (!r.ok) {
       const err = new Error('HTTP ' + r.status);
       const body = await r.json().catch(() => ({}));
@@ -843,7 +1000,7 @@ const Online = {
     return (await r.json())[0];
   },
   async top(region, limit = 25) {
-    let q = `/rest/v1/scores?select=id,name,region,starter,mon_id,mon,score,t,level,kills,won&order=score.desc,created_at.asc&limit=${limit}`;
+    let q = `/rest/v1/scores?select=*&order=score.desc,created_at.asc&limit=${limit}`;
     if (region !== 'all') q += `&region=eq.${+region}`;
     const r = await fetch(ONLINE.url + q, { headers:this.headers() });
     if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -871,6 +1028,7 @@ const ACHIEVEMENTS = [
   { id:'worldChamp', name:'World Champion',       desc:'Become the Champion of every region.',     test:(r, s) => REGIONS.every(R => s.regionWins[R.key]) },
   { id:'win3',     name:'Master Trainer',         desc:'Win with 3 different starters.',           test:(r, s) => Object.keys(s.wins).length >= 3 },
   { id:'winAll',   name:'Pokémon Master',         desc:'Win with 10 different starters.',          test:(r, s) => Object.keys(s.wins).length >= 10 },
+  { id:'shinyStarter', name:'Shiny Partner',      desc:'Start a run with a shiny starter (1 in 50).', test:r => r.shiny },
   { id:'newMoves', name:'Type Explorer',          desc:'Use Pin Missile, Dark Pulse, Dragon Pulse or Dazzling Gleam.', test:r => r.newTypeMove },
   { id:'onix',     name:'Rock Breaker',           desc:'Defeat Onix.',                             test:r => r.bosses.includes('Onix') },
   { id:'snorlax',  name:'Wake-Up Call',           desc:'Defeat Snorlax.',                          test:r => r.bosses.includes('Snorlax') },
@@ -1208,7 +1366,7 @@ function newGame(starterKey) {
   P.id = st.stages[0][0]; P.name = st.stages[0][1]; P.types = st.types[0];
   G = {
     running: true, paused: false, choosing: false, t: 0, uid: 0,
-    enemies: [], projs: [], eprojs: [], zones: [], gems: [], pickups: [], fx: [], texts: [], allies: [], trail: [],
+    enemies: [], projs: [], eprojs: [], zones: [], gems: [], pickups: [], fx: [], texts: [], allies: [], trail: [], parts: [],
     moves: [], items: {}, protein: 1, level: 1, xp: 0, xpNext: xpFor(1), pending: 0,
     kills: 0, spawnT: 0, nextElite: 50, bossIdx: 0, swarmIdx: 0, boss: null, shake: 0, seT: 0,
     cam: { x: -W/2, y: -H/2 }, trailT: 0, hudT: 0, bannerT: 0,
@@ -1221,7 +1379,15 @@ function newGame(starterKey) {
   for (const s of ['title', 'end', 'pause', 'levelup', 'achScreen', 'lbScreen']) $(s).classList.add('hidden');
   $('hud').classList.remove('hidden');
   renderLoadout();
-  banner(`Go! ${P.name}!`);
+  // a rare shiny partner
+  P.shiny = Math.random() < 1/SHINY_ODDS;
+  if (P.shiny) {
+    banner(`Whoa! A shiny ${P.name}! Go, ${P.name}!`, 3.5);
+    Sound.sfx('shiny');
+    emit(P.x, P.y - P.r, 30, { color:Math.random() < .5 ? '#fff8a0' : '#ffffff', spread:200, life:.9, size:4, add:true, drag:2 });
+  } else banner(`Go! ${P.name}!`);
+  // animations from another region aren't needed any more: free their memory
+  if (G.region !== lastAnimRegion) { animCache = {}; animQueue.length = 0; lastAnimRegion = G.region; }
 }
 
 const xpFor = l => Math.floor(5 + (l-1)*6 + Math.max(0, l-20)*14 + Math.max(0, l-40)*24);
@@ -1273,8 +1439,15 @@ function aimAngle(range) {
 }
 function boltPts(x, y) {
   const pts = [[x + (Math.random()-.5)*60, y - 420]];
-  for (let i = 1; i < 8; i++) pts.push([x + (Math.random()-.5)*36*(1 - i/8), y - 420 + i*420/8]);
+  for (let i = 1; i < 10; i++) pts.push([x + (Math.random()-.5)*40*(1 - i/10), y - 420 + i*42]);
   pts.push([x, y]);
+  // a few forks splitting off the main bolt
+  pts.branches = [];
+  for (let b = 0; b < 3; b++) {
+    const s = pts[2 + ((Math.random()*6)|0)], dir = Math.random() < .5 ? -1 : 1, br = [s];
+    for (let i = 1; i < 4; i++) br.push([s[0] + dir*i*(10 + Math.random()*10), s[1] + i*(16 + Math.random()*12)]);
+    pts.branches.push(br);
+  }
   return pts;
 }
 
@@ -1311,6 +1484,10 @@ function damageEnemy(e, base, type, src = 'player', srcTypes = null, kx = 0, ky 
   const crit = Math.random() < G.stat.crit;
   const d = base * stab * item * m * (crit ? 2 : 1) * (src === 'player' ? G.stat.dmg : 1);
   e.hp -= d; e.flash = .1;
+  if (G.t - (e.sparkT || -9) > .12) { // impact sparks in the move's type colour (bigger when super effective)
+    e.sparkT = G.t;
+    emit(e.x, e.y - e.r*.4, m >= 2 ? 7 : 4, { color:TC[type], spread:m >= 2 ? 240 : 150, life:.25, size:m >= 2 ? 4 : 3, shape:'streak', add:GLOW.has(type), drag:6 });
+  }
   if (!e.boss) { e.kx += kx * (e.elite ? .3 : 1); e.ky += ky * (e.elite ? .3 : 1); }
   const col = m >= 2 ? '#ffe040' : m < 1 ? '#c8c8d0' : '#fff';
   addText(e.x + (Math.random()-.5)*10, e.y - e.r, Math.round(d) + (crit ? '!' : ''), col, m >= 2 ? 11 : m < 1 ? 7 : 9);
@@ -1351,6 +1528,10 @@ function beam(x, y, a, len, w, dmg, type, onHit) {
     damageEnemy(e, dmg, type);
   }
   addFx({ kind:'beam', x, y, x2:ex, y2:ey, w, color:TC[type], life:.25, max:.25 });
+  for (let i = 0; i < 12; i++) { // ice crystals left hanging along the beam
+    const k = Math.random();
+    emit(x + dx*k, y + dy*k, 1, { color:Math.random() < .5 ? '#ffffff' : '#bdeff8', spread:40, life:.6, size:3, jitter:w, add:true, drag:4 });
+  }
 }
 
 function shoot(o) {
@@ -1370,7 +1551,11 @@ function hurtPlayer(dmg, type) {
 function killEnemy(e) {
   e.dead = true;
   G.kills++;
-  addFx({ kind:'poof', x:e.x, y:e.y, r:e.r, life:.3, max:.3 });
+  // fainting: flash white, then shrink and sink away in a puff of sparkles
+  const fl = e.boss ? 1.2 : .45;
+  addFx({ kind:'faint', id:e.id, shiny:e.shiny, types:e.types, x:e.x, y:e.y, r:e.r, flip:e.dirX > 0, phase:e.phase, life:fl, max:fl });
+  emit(e.x, e.y - e.r*.4, e.boss ? 40 : 6, { color:TC[e.types[0]], spread:e.boss ? 260 : 120, life:.45, size:3, up:40 });
+  emit(e.x, e.y + e.r*.5, e.boss ? 20 : 3, { color:'rgba(255,255,255,.8)', spread:60, life:.5, size:5, drag:5 });
   if (e.boss) {
     G.boss = null;
     G.bosses.push(e.name);
@@ -1399,6 +1584,66 @@ function addText(x, y, txt, color, size, life = .7) {
 }
 function addFx(f) { if (G.fx.length < 300) G.fx.push(f); }
 
+/* Particles: small squares, streaks, puffs and leaves.
+   o: color, spread (speed), life, size, up (rise speed), grav, drag, add (glow), shape, jitter, vx/vy (base velocity) */
+function emit(x, y, n, o) {
+  for (let i = 0; i < n; i++) {
+    if (G.parts.length >= 900) return;
+    const a = Math.random()*Math.PI*2, sp = (o.spread ?? 80) * (.3 + Math.random()*.7), life = (o.life || .4) * (.6 + Math.random()*.6);
+    const j = o.jitter || 0;
+    G.parts.push({
+      x:x + (Math.random() - .5)*j, y:y + (Math.random() - .5)*j,
+      vx:Math.cos(a)*sp + (o.vx || 0), vy:Math.sin(a)*sp + (o.vy || 0) - (o.up || 0),
+      life, max:life, size:o.size || 3, color:o.color, grav:o.grav || 0, drag:o.drag ?? 3, add:!!o.add, shape:o.shape || 'sq', rot:Math.random()*6,
+    });
+  }
+}
+// types whose sparks look best glowing
+const GLOW = new Set(['fire', 'electric', 'fairy', 'dragon', 'psychic', 'ice', 'water', 'normal', 'flying']);
+// a trail of particles behind each kind of projectile
+function trail(p, dt) {
+  const chance = rate => Math.random() < rate*dt;
+  switch (p.kind) {
+    case 'fire':
+      if (chance(45)) emit(p.x, p.y, 1, { color:Math.random() < .5 ? '#ffd040' : '#ff6a10', spread:35, life:.35, size:p.r*.8, up:30, add:true });
+      if (chance(8)) emit(p.x, p.y, 1, { color:'rgba(70,60,60,.45)', spread:15, life:.6, size:p.r, up:25, shape:'puff' });
+      break;
+    case 'water': if (chance(30)) emit(p.x, p.y, 1, { color:'#a8d0ff', spread:50, life:.35, size:3, grav:350 }); break;
+    case 'shadow': if (chance(35)) emit(p.x, p.y, 1, { color:'rgba(110,70,170,.7)', spread:25, life:.5, size:p.r*.45, jitter:p.r, shape:'puff' }); break;
+    case 'gust': if (chance(25)) emit(p.x, p.y, 1, { color:'rgba(255,255,255,.75)', spread:70, life:.4, size:3, jitter:p.r }); break;
+    case 'star': if (chance(35)) emit(p.x, p.y, 1, { color:'#fff4a0', spread:20, life:.35, size:3, add:true }); break;
+    case 'dragon': if (chance(50)) emit(p.x, p.y, 1, { color:Math.random() < .5 ? '#c0a0ff' : '#6040ff', spread:45, life:.4, size:p.r*.45, add:true }); break;
+    case 'needle': if (chance(12)) emit(p.x, p.y, 1, { color:'#d8e860', spread:10, life:.2, size:2 }); break;
+    case 'orb': if (chance(20)) emit(p.x, p.y, 1, { color:TC[p.type], spread:15, life:.3, size:3, add:GLOW.has(p.type) }); break;
+  }
+}
+function updateParts(dt) {
+  for (const p of G.parts) {
+    const k = Math.exp(-p.drag*dt);
+    p.vx *= k; p.vy = p.vy*k + p.grav*dt;
+    p.x += p.vx*dt; p.y += p.vy*dt; p.life -= dt; p.rot += dt*8;
+  }
+  G.parts = G.parts.filter(p => p.life > 0);
+}
+function drawParts(add) {
+  for (const p of G.parts) {
+    if (p.add !== add) continue;
+    const k = p.life/p.max;
+    ctx.globalAlpha = Math.min(1, k*1.6);
+    if (p.shape === 'streak') {
+      ctx.strokeStyle = p.color; ctx.lineWidth = p.size*.7;
+      ctx.beginPath(); ctx.moveTo(p.x - p.vx*.04, p.y - p.vy*.04); ctx.lineTo(p.x, p.y); ctx.stroke();
+    } else if (p.shape === 'leaf') {
+      ctx.fillStyle = p.color; ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+      ctx.beginPath(); ctx.ellipse(0, 0, p.size, p.size*.45, 0, 0, Math.PI*2); ctx.fill(); ctx.restore();
+    } else {
+      const s = p.shape === 'puff' ? p.size*(1.8 - k) : p.size*(.4 + k*.6);
+      ctx.fillStyle = p.color; ctx.fillRect(p.x - s/2, p.y - s/2, s, s);
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
 /* =========================================================================
    Spawning
    ========================================================================= */
@@ -1413,6 +1658,7 @@ function makeEnemy(sp, x, y) {
   const e = {
     id:sp.id, name:sp.name, types:sp.types, x, y, r:sp.r, hp:sp.hp*hpScale, speed:sp.spd*(.9 + Math.random()*.2),
     dmg:sp.dmg*(1 + m*.06)*R.dmgMul, xp:sp.xp*R.xpMul, kx:0, ky:0, flash:0, freeze:0, slowT:0, slowF:0, dirX:-1, hitT:{}, dead:false,
+    born:G.t, phase:Math.random()*10,
   };
   e.maxHp = e.hp;
   return e;
@@ -1489,7 +1735,7 @@ function update(dt) {
   for (const m of G.moves) {
     const d = MOVES[m.key], s = moveStats(m);
     if (d.passive) d.tick(m, s, dt);
-    else { m.t -= dt; if (m.t <= 0) { m.t = s.cd; d.fire(m, s); } }
+    else { m.t -= dt; if (m.t <= 0) { m.t = s.cd; d.fire(m, s); P.castT = .14; } }
   }
   updateAllies(dt);
   spawning(dt);
@@ -1499,6 +1745,7 @@ function update(dt) {
   updateZones(dt);
   updatePickups(dt);
   for (const f of G.fx) f.life -= dt;
+  updateParts(dt);
   for (const t of G.texts) { t.life -= dt; t.y -= 28*dt; }
   G.enemies = G.enemies.filter(e => !e.dead);
   G.projs = G.projs.filter(p => !p.dead);
@@ -1521,7 +1768,7 @@ function updatePlayer(dt) {
     P.up = P.fy < -.6;
   }
   P.moving = len > .01;
-  P.inv -= dt; P.hurt -= dt; P.evoT -= dt;
+  P.inv -= dt; P.hurt -= dt; P.evoT -= dt; P.castT = (P.castT || 0) - dt;
   P.hp = Math.min(P.maxHp, P.hp + G.stat.regen*dt);
   // trail for allies
   G.trailT -= dt;
@@ -1591,7 +1838,10 @@ function updateEnemies(dt) {
         }
       }
     }
-    if (e.boss) bossAttack(e, dt);
+    if (e.boss) {
+      bossAttack(e, dt);
+      if (sp > 0 && Math.random() < 8*dt) emit(e.x + (Math.random() - .5)*e.r, e.y + e.r*.7, 1, { color:'rgba(150,130,100,.5)', spread:25, life:.6, size:10, shape:'puff' }); // footstep dust
+    }
   }
 }
 
@@ -1600,6 +1850,8 @@ function bossAttack(e, dt) {
   if (e.atkT > 0) return;
   e.atkN++;
   const t = e.types[0], dmg = e.dmg*.6;
+  e.flash = .12; // the boss rears up as it attacks
+  emit(e.x, e.y - e.r*.6, 16, { color:TC[t], spread:220, life:.4, size:4, add:GLOW.has(t), drag:4 });
   if (e.final) {
     e.atkT = 1.8;
     if (e.atkN % 2) ring(e, 18, 170, dmg, t);
@@ -1628,6 +1880,7 @@ function updateProjs(dt) {
       }
     }
     p.x += p.vx*dt; p.y += p.vy*dt;
+    trail(p, dt);
     if (p.bounce) {
       const L = G.cam.x, T = G.cam.y;
       if ((p.x < L + p.r && p.vx < 0) || (p.x > L + W - p.r && p.vx > 0)) p.vx *= -1;
@@ -1655,6 +1908,7 @@ function updateProjs(dt) {
 function updateEProjs(dt) {
   for (const p of G.eprojs) {
     p.life -= dt; p.x += p.vx*dt; p.y += p.vy*dt;
+    if (Math.random() < 12*dt) emit(p.x, p.y, 1, { color:TC[p.type], spread:15, life:.3, size:4, add:GLOW.has(p.type) });
     if (p.life <= 0) { p.dead = true; continue; }
     const rr = p.r + P.r*.8;
     if ((p.x - P.x)**2 + (p.y - P.y)**2 < rr*rr) { hurtPlayer(p.dmg, p.type); p.dead = true; }
@@ -1668,12 +1922,18 @@ function updateZones(dt) {
       if (z.delay <= 0) {
         hitArea(z.x, z.y, z.r, z.dmg, 'rock');
         addFx({ kind:'burst', x:z.x, y:z.y, r:z.r, color:'#8a7448', life:.35, max:.35 });
+        emit(z.x, z.y, 9, { color:Math.random() < .5 ? '#9a8458' : '#6e5c3a', spread:220, life:.55, size:4, up:160, grav:700, drag:1 }); // rubble
+        emit(z.x, z.y + 4, 5, { color:'rgba(190,170,130,.6)', spread:70, life:.6, size:9, shape:'puff', drag:4 });           // dust
         G.shake = Math.max(G.shake, 3);
         z.dead = true;
       }
     } else if (z.kind === 'quake') {
       z.life -= dt;
       z.r = z.maxR * (1 - z.life/z.max);
+      for (let i = 0; i < 4; i++) { // dust (or dark energy) thrown up along the shockwave
+        const a = Math.random()*Math.PI*2;
+        emit(z.x + Math.cos(a)*z.r, z.y + Math.sin(a)*z.r*.8, 1, { color:z.type === 'dark' ? 'rgba(80,30,110,.7)' : 'rgba(160,130,80,.65)', spread:30, life:.5, size:8, up:30, shape:'puff' });
+      }
       query(z.x, z.y, z.r + 60, tmpA);
       for (const e of tmpA) {
         if (e.dead || z.hit.has(e)) continue;
@@ -1682,9 +1942,14 @@ function updateZones(dt) {
       if (z.life <= 0) z.dead = true;
     } else if (z.kind === 'lob') {
       z.t += dt;
-      if (z.t >= z.T) { z.kind = 'puddle'; z.life = z.dur; z.max = z.dur; z.tick = 0; }
+      if (Math.random() < 25*dt) { const k = z.t/z.T; emit(z.sx + (z.x - z.sx)*k, z.sy + (z.y - z.sy)*k - Math.sin(k*Math.PI)*80, 1, { color:'#b050c0', spread:10, life:.3, size:3, grav:200 }); }
+      if (z.t >= z.T) {
+        z.kind = 'puddle'; z.life = z.dur; z.max = z.dur; z.tick = 0;
+        emit(z.x, z.y, 10, { color:Math.random() < .5 ? '#a040b0' : '#d080e0', spread:160, life:.4, size:4, up:120, grav:500, drag:1 }); // splash
+      }
     } else if (z.kind === 'puddle') {
       z.life -= dt; z.tick -= dt;
+      if (Math.random() < 6*dt) emit(z.x + (Math.random() - .5)*z.r*1.2, z.y + (Math.random() - .5)*z.r*.8, 1, { color:'rgba(210,140,230,.8)', spread:5, life:.6, size:5, up:25, shape:'puff' }); // bubbles
       if (z.tick <= 0) { z.tick = .4; hitArea(z.x, z.y, z.r, z.dmg, 'poison'); }
       if (z.life <= 0) z.dead = true;
     }
@@ -1756,6 +2021,7 @@ function evolve(stage) {
   recalc();
   banner(`What? ${old} is evolving! ... ${old} evolved into ${P.name}!`, 4);
   Sound.sfx('evolve');
+  emit(P.x, P.y - P.r, 40, { color:Math.random() < .5 ? '#ffffff' : '#fff4b0', spread:260, life:.9, size:4, add:true, drag:2 });
   monImg(P.id); monImg(P.id, false, true);
 }
 
@@ -1875,7 +2141,8 @@ function updateHUD(dt) {
     $('timer').textContent = `${String(Math.floor(s/60)).padStart(2, '0')}:${String(s%60).padStart(2, '0')}`;
     $('kills').textContent = 'KO ' + G.kills;
     $('score').textContent = calcScore().toLocaleString();
-    if (lastPortrait !== P.id) { lastPortrait = P.id; $('portrait').src = monURL(P.id); $('pname').innerHTML = `${P.name} ${P.types.map(typeBadge).join('')}`; }
+    const pkey = P.id + (P.shiny ? 's' : '');
+    if (lastPortrait !== pkey) { lastPortrait = pkey; $('portrait').src = monURL(P.id, P.shiny); $('pname').innerHTML = `${P.shiny ? '✨' : ''}${P.name} ${P.types.map(typeBadge).join('')}`; }
     if (G.boss) $('bossfill').style.width = Math.max(0, G.boss.hp / G.boss.maxHp * 100) + '%';
   }
   if (G.bannerT > 0) { G.bannerT -= dt; if (G.bannerT <= 0) $('banner').classList.remove('show'); }
@@ -1926,6 +2193,7 @@ function runInfo() {
   return {
     t:G.t, won:G.won, bosses:G.bosses, starter:G.starterKey, stage:P.stage, movesEvolved:G.movesEvolved, moves:G.moves.length,
     caught:G.caught, allies:G.allies.length, hit4:G.hit4, kills:G.kills, level:G.level, cleanT:G.t - G.lastHurt, region:G.region,
+    shiny:!!P.shiny,
     newTypeMove:G.moves.some(m => ['pinMissile', 'darkPulse', 'dragonPulse', 'dazzlingGleam'].includes(m.key)),
   };
 }
@@ -1964,7 +2232,7 @@ document.querySelectorAll('[data-lb]').forEach(b => b.onclick = () => { lbMode =
 const lbRow = (s, i, me) => `
     <tr class="${me ? 'me' : ''}">
       <td><b>${i + 1}</b></td><td>${esc(NameFilter.safe(s.name))}</td><td>${(REGIONS[s.region || 0] || REGIONS[0]).name}</td>
-      <td><img src="${monURL(s.id)}" alt="">${esc(s.mon)}${s.won ? ' ★' : ''}</td>
+      <td><img src="${monURL(s.id, !!s.shiny)}" alt="">${s.shiny ? '✨' : ''}${esc(s.mon)}${s.won ? ' ★' : ''}</td>
       <td><b>${(+s.score).toLocaleString()}</b></td><td>${fmtTime(s.t)}</td><td>${s.level}</td><td>${(+s.kills).toLocaleString()}</td>
     </tr>`;
 const lbMessage = msg => `<tr><td colspan="8" class="center">${msg}</td></tr>`;
@@ -2062,7 +2330,7 @@ function endGame(won) {
   checkAch();
   S.totalKills += G.kills;
   const score = calcScore();
-  const entry = { name:NameFilter.safe(S.settings.name), starter:G.starterKey, region:G.region, id:P.id, mon:P.name, score, t:Math.floor(G.t), level:G.level, kills:G.kills, won, date:Date.now() };
+  const entry = { name:NameFilter.safe(S.settings.name), starter:G.starterKey, region:G.region, id:P.id, mon:P.name, shiny:!!P.shiny, score, t:Math.floor(G.t), level:G.level, kills:G.kills, won, date:Date.now() };
   S.scores.push(entry);
   S.scores.sort((a, b) => b.score - a.score);
   S.scores = S.scores.slice(0, 100);
@@ -2179,29 +2447,58 @@ function drawGround(cx, cy) {
   }
 }
 
+// Pokémon that float instead of walking
+const hovers = types => types && (types.includes('flying') || types.includes('ghost'));
+const easeOutBack = k => Math.max(0, 1 + 2.7*Math.pow(k - 1, 3) + 1.7*Math.pow(k - 1, 2));
+
+/* Draws a Pokémon standing at (x, y) with hitbox radius r.
+   o: t (animation clock, s), rate (playback speed), moving, hover, flash (hit), white (silhouette),
+      scale, alpha, sink (0..1 fainting), shiny, back, lean (-1..1 attack lunge), type/name (fallback). */
 function drawMon(id, x, y, r, flip, o = {}) {
+  const t = o.t || 0, scale = Math.max(.001, o.scale ?? 1);
+  // pose: hop while walking, float for flyers/ghosts, squash when hit
+  let lift = 0, sx = scale, sy = scale;
+  if (o.hover) lift = r*.55 + Math.sin(t*3)*r*.14;
+  else if (o.moving) { const h = Math.abs(Math.sin(t*9)); lift = h*r*.2; sy *= 1 + (h - .5)*.1; sx *= 1 - (h - .5)*.1; }
+  if (o.flash > 0) { sx *= 1.14; sy *= .84; }
+  if (o.lean) { sx *= 1 + Math.abs(o.lean)*.12; sy *= 1 - Math.abs(o.lean)*.08; }
+  lift -= (o.sink || 0) * r*.6;
+  // shadow shrinks as the Pokémon rises
+  const sh = Math.max(.45, Math.min(1.3, 1 - lift/(r*2))) * scale;
+  ctx.fillStyle = `rgba(0,0,0,${.22*(o.alpha ?? 1)})`;
+  ctx.beginPath(); ctx.ellipse(x, y + r*.7, r*.9*sh, r*.35*sh, 0, 0, Math.PI*2); ctx.fill();
+  const feet = y + r*.7 - lift, nudge = (o.lean || 0) * r*.35;
+
+  let a = getAnim(id, o.shiny, o.back);
+  // some Pokémon lack back or shiny animations: fall back to the front one
+  if (a.state === 'failed' && (o.back || o.shiny)) { a = getAnim(id, o.shiny && !o.back, false); if (a.state === 'failed') a = getAnim(id); if (o.back && a.state !== 'failed') flip = !flip; }
+  ctx.save();
+  if (o.alpha !== undefined) ctx.globalAlpha = o.alpha;
+  if (a.state === 'ready') {
+    const fr = frameAt(a, t*1000*(o.rate || 1)), m = Math.max(a.w, a.h);
+    const s = Math.min(r*4.0/m, Math.max(r*2.0/m, r*3.4/96));
+    ctx.translate(x + nudge, feet); ctx.scale((flip ? -1 : 1)*sx*s, sy*s);
+    if (o.white) drawWhite(fr, -a.w/2, -a.h); else ctx.drawImage(fr, -a.w/2, -a.h);
+    if (o.flash > 0 && !o.white) { ctx.globalAlpha *= .7; drawWhite(fr, -a.w/2, -a.h); }
+    ctx.restore();
+    return;
+  }
+  // static sprite while the animation loads (or if there is none)
   let im = monImg(id, o.shiny, o.back);
-  // newer Pokémon may be missing back or shiny sprites: fall back to the plain front sprite
   if (im.failed && (o.back || o.shiny)) { im = monImg(id, o.shiny && !o.back, false); if (im.failed) im = monImg(id); if (o.back) flip = !flip; }
   const size = r * 3.4;
-  // shadow
-  ctx.fillStyle = 'rgba(0,0,0,.22)';
-  ctx.beginPath(); ctx.ellipse(x, y + r*.7, r*.9, r*.35, 0, 0, Math.PI*2); ctx.fill();
+  ctx.translate(x + nudge, feet); ctx.scale(flip ? -sx : sx, sy);
   if (im.ok) {
-    ctx.save();
-    ctx.translate(x, y);
-    if (flip) ctx.scale(-1, 1);
-    if (o.alpha !== undefined) ctx.globalAlpha = o.alpha;
-    ctx.drawImage(o.white ? im.white : im.img, -size/2, -size/2 - r*.35, size, size);
-    if (o.flash > 0 && !o.white) { ctx.globalAlpha = .75; ctx.drawImage(im.white, -size/2, -size/2 - r*.35, size, size); }
-    ctx.restore();
+    ctx.drawImage(o.white ? im.white : im.img, -size/2, -size*.86, size, size);
+    if (o.flash > 0 && !o.white) { ctx.globalAlpha *= .75; ctx.drawImage(im.white, -size/2, -size*.86, size, size); }
   } else {
     ctx.fillStyle = o.white || o.flash > 0 ? '#fff' : (TC[o.type] || '#999');
-    ctx.beginPath(); ctx.arc(x, y - r*.2, r, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(0, -r*.9, r, 0, Math.PI*2); ctx.fill();
     ctx.strokeStyle = 'rgba(0,0,0,.4)'; ctx.lineWidth = 2; ctx.stroke();
     ctx.fillStyle = '#000'; ctx.font = `bold ${r}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText((o.name || '?')[0], x, y - r*.2);
+    ctx.fillText((o.name || '?')[0], 0, -r*.9);
   }
+  ctx.restore();
 }
 
 function drawStar(x, y, r, a) {
@@ -2280,22 +2577,32 @@ function render(now) {
     if (c === P) {
       if (P.inv > 0 && P.hurt > 0 && Math.floor(T*30) % 2) continue;
       if (P.evoT > 0) {
+        // evolution: flicker between the old and new form as a glowing silhouette
         const id = Math.floor(P.evoT*10) % 2 ? P.prevId : P.id;
-        drawMon(id, P.x, P.y, P.r, P.dirX > 0, { white:true });
+        drawMon(id, P.x, P.y, P.r, P.dirX > 0, { white:true, t:T, shiny:P.shiny, scale:1 + Math.sin(T*30)*.05 });
         ctx.strokeStyle = `rgba(255,255,255,${P.evoT/1.4})`; ctx.lineWidth = 3;
         ctx.beginPath(); ctx.arc(P.x, P.y, (1.4 - P.evoT)*90, 0, Math.PI*2); ctx.stroke();
       } else {
-        const back = P.up && P.moving;
-        drawMon(P.id, P.x, P.y, P.r, back ? P.dirX < 0 : P.dirX > 0, { back, type:P.types[0], name:P.name, flash:P.hurt });
+        const back = P.up && P.moving, lean = P.castT > 0 ? P.castT/.14 * (P.fx >= 0 ? 1 : -1) : 0;
+        drawMon(P.id, P.x, P.y, P.r, back ? P.dirX < 0 : P.dirX > 0, {
+          back, t:T, rate:P.moving ? 1.7 : 1, moving:P.moving, hover:hovers(P.types), flash:P.hurt, lean,
+          shiny:P.shiny, type:P.types[0], name:P.name,
+        });
+        if (P.shiny && Math.floor(T*5) % 6 === 0) { ctx.fillStyle = '#fff8a0'; drawStar(P.x + Math.sin(T*2)*P.r*1.2, P.y - P.r*2, 4, T*3); }
       }
     } else if (c.cd !== undefined && !c.hitT) { // ally
-      drawMon(c.id, c.x, c.y, 13, c.dirX > 0, { shiny:true, type:c.types[0], name:c.name });
+      drawMon(c.id, c.x, c.y, 13, c.dirX > 0, { shiny:true, t:T + c.x*.001, moving:true, rate:1.5, hover:hovers(c.types), type:c.types[0], name:c.name });
     } else {
       if (c.elite || c.boss) {
         ctx.strokeStyle = c.boss ? 'rgba(255,60,60,.6)' : 'rgba(255,230,80,.8)'; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.ellipse(c.x, c.y + c.r*.7, c.r*1.05, c.r*.4, 0, 0, Math.PI*2); ctx.stroke();
       }
-      drawMon(c.id, c.x, c.y, c.r, c.dirX > 0, { shiny:c.shiny, flash:c.flash, type:c.types[0], name:c.name });
+      const age = T - (c.born ?? -9);
+      drawMon(c.id, c.x, c.y, c.r, c.dirX > 0, {
+        t:T + c.phase, rate:c.boss ? 1 : 1.4, moving:c.freeze <= 0 && !c.boss, hover:hovers(c.types),
+        scale:age < .3 ? easeOutBack(Math.max(0, age/.3)) : 1,
+        shiny:c.shiny, flash:c.flash, type:c.types[0], name:c.name,
+      });
       if (c.freeze > 0) { ctx.fillStyle = 'rgba(150,220,240,.45)'; ctx.beginPath(); ctx.arc(c.x, c.y - c.r*.2, c.r*1.1, 0, Math.PI*2); ctx.fill(); }
       if (c.shiny && Math.floor(T*6 + c.x) % 4 === 0) { ctx.fillStyle = '#fff8a0'; drawStar(c.x + Math.sin(T*3)*c.r, c.y - c.r*1.3, 5, T); }
       if (c.elite && c.hp < c.maxHp) {
@@ -2349,6 +2656,15 @@ function render(now) {
       ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r*.45, 0, Math.PI*2); ctx.fill();
     }
   }
+  for (const z of G.zones) if (z.kind === 'rock') { // boulders falling out of the sky onto their shadows
+    const k = 1 - z.delay/z.max, h = (1 - k)*(1 - k)*340, s = z.r*.55;
+    ctx.save(); ctx.translate(z.x, z.y - h - s*.4); ctx.rotate(k*4 + z.x);
+    ctx.fillStyle = '#8a7448'; ctx.strokeStyle = '#4a3c22'; ctx.lineWidth = 2;
+    ctx.beginPath(); [[-1, -.5], [-.3, -1], [.6, -.8], [1, 0], [.5, .9], [-.6, .8]].forEach(([px, py], i) => i ? ctx.lineTo(px*s, py*s) : ctx.moveTo(px*s, py*s));
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#b09a6a'; ctx.beginPath(); ctx.ellipse(-s*.25, -s*.35, s*.3, s*.18, -.4, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
   for (const z of G.zones) if (z.kind === 'lob') { // sludge in flight
     const k = z.t/z.T, x = z.sx + (z.x - z.sx)*k, y = z.sy + (z.y - z.sy)*k - Math.sin(k*Math.PI)*80;
     ctx.fillStyle = '#a040b0'; ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI*2); ctx.fill();
@@ -2362,17 +2678,27 @@ function render(now) {
   for (const f of G.fx) {
     const k = f.life/f.max;
     if (f.kind === 'bolt') {
-      ctx.strokeStyle = `rgba(255,240,120,${k})`; ctx.lineWidth = 4;
-      ctx.beginPath(); f.pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.stroke();
+      const path = pts => { ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); };
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = `rgba(255,240,100,${k*.4})`; ctx.beginPath(); ctx.arc(f.x, f.y, f.r*(1.3 - k*.3), 0, Math.PI*2); ctx.fill();
+      path(f.pts); ctx.strokeStyle = `rgba(255,230,90,${k*.35})`; ctx.lineWidth = 10; ctx.stroke();
+      ctx.strokeStyle = `rgba(255,240,120,${k})`; ctx.lineWidth = 4; ctx.stroke();
       ctx.strokeStyle = `rgba(255,255,255,${k})`; ctx.lineWidth = 1.5; ctx.stroke();
-      ctx.fillStyle = `rgba(255,240,100,${k*.35})`; ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, Math.PI*2); ctx.fill();
+      for (const b of f.pts.branches || []) { path(b); ctx.strokeStyle = `rgba(255,240,140,${k*.8})`; ctx.lineWidth = 1.5; ctx.stroke(); }
+      ctx.globalCompositeOperation = 'source-over';
     } else if (f.kind === 'beam') {
       ctx.strokeStyle = `rgba(150,220,240,${k*.7})`; ctx.lineWidth = f.w; ctx.lineCap = 'round';
       ctx.beginPath(); ctx.moveTo(f.x, f.y); ctx.lineTo(f.x2, f.y2); ctx.stroke();
       ctx.strokeStyle = `rgba(255,255,255,${k})`; ctx.lineWidth = f.w*.35; ctx.stroke(); ctx.lineCap = 'butt';
     } else if (f.kind === 'arc') {
-      ctx.strokeStyle = `rgba(255,${120 + 100*k},80,${k})`; ctx.lineWidth = 14*k + 2;
-      ctx.beginPath(); ctx.arc(f.x, f.y, f.r*.8, f.a - .95, f.a + .95); ctx.stroke();
+      // a sweeping chop: the arc swings across, with fading motion lines behind it
+      const sweep = (1 - k)*1.9 - .95;
+      ctx.lineCap = 'round';
+      for (let i = 0; i < 3; i++) {
+        ctx.strokeStyle = `rgba(255,${200 - i*40},${120 - i*30},${k*(1 - i*.3)})`; ctx.lineWidth = (14 - i*4)*k + 2;
+        ctx.beginPath(); ctx.arc(f.x, f.y, f.r*(.8 - i*.12), f.a - .95, f.a + Math.min(.95, sweep + .6)); ctx.stroke();
+      }
+      ctx.lineCap = 'butt';
     } else if (f.kind === 'burst') {
       ctx.globalAlpha = k*.6; ctx.fillStyle = f.color;
       ctx.beginPath(); ctx.arc(f.x, f.y, f.r*(1.2 - k*.4), 0, Math.PI*2); ctx.fill(); ctx.globalAlpha = 1;
@@ -2380,17 +2706,25 @@ function render(now) {
       ctx.fillStyle = `rgba(255,220,240,${k*.35})`; ctx.beginPath(); ctx.arc(f.x, f.y, f.r*(1.1 - k*.3), 0, Math.PI*2); ctx.fill();
       ctx.fillStyle = `rgba(255,255,255,${k})`;
       for (let i = 0; i < 10; i++) { const a = i*.628 + k, d = f.r*(1 - k)*.9; drawStar(f.x + Math.cos(a)*d, f.y + Math.sin(a)*d, 6, a); }
+    } else if (f.kind === 'faint') {
+      const k = 1 - f.life/f.max; // 0 -> 1
+      drawMon(f.id, f.x, f.y, f.r, f.flip, { t:T + (f.phase || 0), shiny:f.shiny, white:k < .3, scale:1 - k*.6, alpha:Math.min(1, 1.6 - k*1.6), sink:k, hover:hovers(f.types) });
     } else if (f.kind === 'poof') {
       ctx.fillStyle = `rgba(255,255,255,${k*.7})`;
       for (let i = 0; i < 5; i++) { const a = i*1.256, d = f.r*(1.5 - k); ctx.beginPath(); ctx.arc(f.x + Math.cos(a)*d, f.y + Math.sin(a)*d, 4*k + 2, 0, Math.PI*2); ctx.fill(); }
     }
   }
 
-  // floating text
+  // particles: normal, then glowing ones added on top
+  drawParts(false);
+  ctx.globalCompositeOperation = 'lighter'; drawParts(true); ctx.globalCompositeOperation = 'source-over';
+
+  // floating text (pops in slightly bigger)
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
   for (const t of G.texts) {
-    ctx.globalAlpha = Math.min(1, t.life/t.max*2);
-    ctx.font = `${t.size}px "Press Start 2P", monospace`;
+    const k = t.life/t.max;
+    ctx.globalAlpha = Math.min(1, k*2);
+    ctx.font = `${Math.round(t.size*(k > .8 ? 1 + (k - .8)*2.5 : 1))}px "Press Start 2P", monospace`;
     ctx.strokeStyle = '#000'; ctx.lineWidth = 3; ctx.strokeText(t.txt, t.x, t.y);
     ctx.fillStyle = t.color; ctx.fillText(t.txt, t.x, t.y);
   }
@@ -2423,6 +2757,7 @@ let last = performance.now();
 function frame(now) {
   const dt = Math.min(.05, (now - last)/1000); last = now;
   pollPad(dt);
+  pumpAnimQueue();
   if (G && G.running && !G.paused && !G.choosing) update(dt);
   render(now);
   if (G) updateHUD(G.running && !G.paused ? dt : 0);

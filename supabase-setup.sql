@@ -52,6 +52,9 @@ end $$;
 alter table public.scores drop constraint if exists scores_name_ok;
 alter table public.scores add constraint scores_name_ok check (public.name_ok(name));
 
+-- added later: was the player's starter shiny?
+alter table public.scores add column if not exists shiny boolean not null default false;
+
 create index if not exists scores_score_idx        on public.scores (score desc);
 create index if not exists scores_region_score_idx on public.scores (region, score desc);
 
