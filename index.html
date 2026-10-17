@@ -166,6 +166,7 @@
       <div><b>Evolve:</b> you evolve at Lv 12 and Lv 28. Max a move to Lv 6 while holding its type item to unlock its evolved form.</div>
       <div><b>Shiny Pokémon</b> drop Poké Balls. Grab one to catch it as an ally (up to 4). Your own starter has a 1 in 50 chance to be shiny!</div>
       <div><b>Pause:</b> Esc, P, the II button or Start. Pick level-up options with 1 / 2 / 3 (or the stick + A). <b>M</b> mutes sound.</div>
+      <div style="grid-column:1/-1;font-size:11px;color:#8a94a8">Unofficial, non-commercial fan game. Pokémon © Nintendo / Game Freak / The Pokémon Company. Anonymous visit counts only: no cookies, nothing personal.</div>
     </div>
   </div>
 </div>
@@ -962,6 +963,24 @@ const ONLINE = {
   key: 'sb_publishable_g080Asewd4FDfAHPUpHxAg_OjqsGj6y',
 };
 
+/* Private, anonymous stats via GoatCounter (no cookies, nothing personal).
+   Put your GoatCounter site code here (the "xyz" in xyz.goatcounter.com) to turn it on.
+   It records visits (with where people came from), runs started (region/starter) and wins.
+   Nothing is sent when playing from your own computer. */
+const STATS = { code: '' };
+const Stats = {
+  get on() { return !!STATS.code && /^https?:$/.test(location.protocol) && !/^(localhost|127\.|\[::1\])/.test(location.hostname); },
+  send(path, title, event) {
+    if (!this.on) return;
+    const q = new URLSearchParams({ p:path, t:title || path, s:`${screen.width},${screen.height},${devicePixelRatio || 1}`, rnd:Math.random().toString(36).slice(2) });
+    if (event) q.set('e', 'true');
+    else if (document.referrer && !document.referrer.startsWith(location.origin)) q.set('r', document.referrer);
+    try { new Image().src = `https://${STATS.code}.goatcounter.com/count?${q}`; } catch (e) {}
+  },
+  visit() { this.send(location.pathname || '/', document.title); },
+  event(name) { this.send(name, name, true); },
+};
+
 /* Trainer-name filter. The word lists are ROT13-encoded so this file isn't full
    of slurs; supabase-setup.sql runs the exact same check inside the database,
    so a bad name is rejected even if someone bypasses the game.
@@ -1391,6 +1410,7 @@ function newGame(starterKey) {
   addMove(st.move);
   recalc();
   Save.data.played[starterKey] = true; Save.data.runs++; Save.write();
+  Stats.event(`run/${REGIONS[st.region].key}/${starterKey}`);
   Sound.music('battle', st.region);
   for (const s of ['title', 'end', 'pause', 'levelup', 'achScreen', 'lbScreen']) $(s).classList.add('hidden');
   $('hud').classList.remove('hidden');
@@ -2359,6 +2379,7 @@ function endGame(won) {
   const S = Save.data, R = REGIONS[G.region], next = REGIONS[G.region + 1];
   let unlockedNow = false;
   if (won) {
+    Stats.event(`win/${R.key}`);
     S.wins[G.starterKey] = true;
     S.regionWins[R.key] = true;
     if (next && S.unlocked < next.index) { S.unlocked = next.index; unlockedNow = true; }
@@ -2441,6 +2462,7 @@ function renderTitle() {
 }
 renderTitle();
 Sound.music('title', titleRegion);
+Stats.visit();
 
 /* =========================================================================
    Rendering
