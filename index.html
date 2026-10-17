@@ -867,6 +867,19 @@ const MOVES = {
       emit(P.x, P.y, 24, { color:Math.random() < .5 ? '#ffd0f0' : '#ffffff', spread:s.radius*2, life:.45, size:3, add:true, drag:4 });
     }
   },
+  gyroBall: {
+    name:'Gyro Ball', type:'steel', desc:'A spinning steel ball that ricochets from foe to foe.',
+    evo:{ item:'metalCoat', name:'Make It Rain', desc:'A shower of gold coins that ricochet everywhere.' },
+    stats:(l, e) => ({ dmg:(12 + 5*(l-1)) * (e?2:1), count:e?4:pick([1,1,2,2,3,3],l), cd:1.6 - .08*(l-1), bounces:e?8:pick([2,3,3,4,4,5],l) }),
+    fire(m, s) {
+      const ts = enemiesByDist(P.x, P.y, 500);
+      for (let i = 0; i < s.count; i++) {
+        const t = ts[i % Math.max(1, ts.length)];
+        const a = t ? Math.atan2(t.y - P.y, t.x - P.x) + (i >= ts.length ? (Math.random() - .5) : 0) : Math.random()*Math.PI*2;
+        shoot({ vx:Math.cos(a)*460, vy:Math.sin(a)*460, r:m.evo ? 8 : 9, dmg:s.dmg, type:'steel', pierce:1, life:1.4, kind:m.evo ? 'coin' : 'gyro', ricochet:s.bounces });
+      }
+    }
+  },
   swift: {
     name:'Swift', type:'normal', desc:'Homing stars that never miss.',
     evo:{ item:'silkScarf', name:'Tri Attack', desc:'A flurry of powerful homing stars.' },
@@ -902,6 +915,7 @@ const ITEMS = {
   blackGlasses:{ name:'Black Glasses', sprite:'black-glasses', forType:'dark', max:3 },
   dragonFang:{ name:'Dragon Fang', sprite:'dragon-fang', forType:'dragon', max:3 },
   pixiePlate:{ name:'Pixie Plate', sprite:'pixie-plate', forType:'fairy', max:3 },
+  metalCoat:{ name:'Metal Coat', sprite:'metal-coat', forType:'steel', max:3 },
   // general
   leftovers:{ name:'Leftovers', sprite:'leftovers', max:5, desc:'Restores 0.6 HP per second per level.' },
   quickClaw:{ name:'Quick Claw', sprite:'quick-claw', max:5, desc:'Moves recharge 7% faster per level.' },
@@ -1029,7 +1043,7 @@ const ACHIEVEMENTS = [
   { id:'win3',     name:'Master Trainer',         desc:'Win with 3 different starters.',           test:(r, s) => Object.keys(s.wins).length >= 3 },
   { id:'winAll',   name:'Pokémon Master',         desc:'Win with 10 different starters.',          test:(r, s) => Object.keys(s.wins).length >= 10 },
   { id:'shinyStarter', name:'Shiny Partner',      desc:'Start a run with a shiny starter (1 in 50).', test:r => r.shiny },
-  { id:'newMoves', name:'Type Explorer',          desc:'Use Pin Missile, Dark Pulse, Dragon Pulse or Dazzling Gleam.', test:r => r.newTypeMove },
+  { id:'newMoves', name:'Type Explorer',          desc:'Use Pin Missile, Dark Pulse, Dragon Pulse, Dazzling Gleam or Gyro Ball.', test:r => r.newTypeMove },
   { id:'onix',     name:'Rock Breaker',           desc:'Defeat Onix.',                             test:r => r.bosses.includes('Onix') },
   { id:'snorlax',  name:'Wake-Up Call',           desc:'Defeat Snorlax.',                          test:r => r.bosses.includes('Snorlax') },
   { id:'gyarados', name:'Rage Quelled',           desc:'Defeat Gyarados.',                         test:r => r.bosses.includes('Gyarados') },
@@ -1614,6 +1628,8 @@ function trail(p, dt) {
     case 'star': if (chance(35)) emit(p.x, p.y, 1, { color:'#fff4a0', spread:20, life:.35, size:3, add:true }); break;
     case 'dragon': if (chance(50)) emit(p.x, p.y, 1, { color:Math.random() < .5 ? '#c0a0ff' : '#6040ff', spread:45, life:.4, size:p.r*.45, add:true }); break;
     case 'needle': if (chance(12)) emit(p.x, p.y, 1, { color:'#d8e860', spread:10, life:.2, size:2 }); break;
+    case 'gyro': if (chance(30)) emit(p.x, p.y, 1, { color:'#dfe4f0', spread:60, life:.2, size:2, shape:'streak', add:true }); break;
+    case 'coin': if (chance(30)) emit(p.x, p.y, 1, { color:'#ffe878', spread:30, life:.3, size:3, add:true }); break;
     case 'orb': if (chance(20)) emit(p.x, p.y, 1, { color:TC[p.type], spread:15, life:.3, size:3, add:GLOW.has(p.type) }); break;
   }
 }
@@ -1899,6 +1915,21 @@ function updateProjs(dt) {
       if (p.blast) {
         hitArea(p.x, p.y, p.blast, p.dmg*.6, p.type);
         addFx({ kind:'burst', x:p.x, y:p.y, r:p.blast, color:TC[p.type], life:.3, max:.3 });
+      }
+      if (p.ricochet > 0) { // bounce on to the nearest foe it hasn't hit yet
+        let next = null, bd = 260*260;
+        for (const o of G.enemies) {
+          if (o.dead || p.hit.has(o)) continue;
+          const d2 = (o.x - p.x)**2 + (o.y - p.y)**2;
+          if (d2 < bd) { bd = d2; next = o; }
+        }
+        if (next) {
+          const a = Math.atan2(next.y - p.y, next.x - p.x), sp = Math.hypot(p.vx, p.vy);
+          p.vx = Math.cos(a)*sp; p.vy = Math.sin(a)*sp; p.ricochet--; p.life = Math.max(p.life, .9);
+          emit(p.x, p.y, 4, { color:p.kind === 'coin' ? '#ffe060' : '#e8e8f0', spread:160, life:.2, size:3, shape:'streak', add:true, drag:6 });
+          break;
+        }
+        p.dead = true; break;
       }
       if (!p.hitCd && --p.pierce <= 0) { p.dead = true; break; }
     }
@@ -2194,7 +2225,7 @@ function runInfo() {
     t:G.t, won:G.won, bosses:G.bosses, starter:G.starterKey, stage:P.stage, movesEvolved:G.movesEvolved, moves:G.moves.length,
     caught:G.caught, allies:G.allies.length, hit4:G.hit4, kills:G.kills, level:G.level, cleanT:G.t - G.lastHurt, region:G.region,
     shiny:!!P.shiny,
-    newTypeMove:G.moves.some(m => ['pinMissile', 'darkPulse', 'dragonPulse', 'dazzlingGleam'].includes(m.key)),
+    newTypeMove:G.moves.some(m => ['pinMissile', 'darkPulse', 'dragonPulse', 'dazzlingGleam', 'gyroBall'].includes(m.key)),
   };
 }
 function checkAch() {
@@ -2414,36 +2445,189 @@ function hash(x, y) {
   h = Math.imul(h ^ (h >>> 13), 1274126177);
   return (h ^ (h >>> 16)) >>> 0;
 }
-function drawGround(cx, cy) {
-  const th = REGIONS[G ? G.region : titleRegion].theme;
-  ctx.fillStyle = th.base; ctx.fillRect(0, 0, W, H);
-  const S = 48, x0 = Math.floor(cx/S), y0 = Math.floor(cy/S), x1 = Math.floor((cx + W)/S), y1 = Math.floor((cy + H)/S);
-  const tufts = new Path2D(), tall = [], flowers = [];
-  ctx.fillStyle = th.alt;
-  for (let gy = y0; gy <= y1; gy++) for (let gx = x0; gx <= x1; gx++) {
-    const h = hash(gx, gy), sx = gx*S - cx, sy = gy*S - cy;
-    if ((h & 3) === 0) ctx.fillRect(sx, sy, S, S);
-    const f = (h >>> 4) % 48;
-    if (f < 6) {
-      const tx = sx + ((h >>> 10) % 32) + 8, ty = sy + ((h >>> 16) % 32) + 8;
-      tufts.moveTo(tx - 4, ty); tufts.lineTo(tx - 2, ty - 5); tufts.lineTo(tx, ty);
-      tufts.moveTo(tx, ty); tufts.lineTo(tx + 2, ty - 6); tufts.lineTo(tx + 4, ty);
-    } else if (f < 8) flowers.push([sx + ((h >>> 9) % 36) + 6, sy + ((h >>> 14) % 36) + 6, (h >>> 20) & 1]);
-    else if (f < 10) tall.push([sx, sy]);
+/* =========================================================================
+   Scenery: Game Boy–style pixel-art tiles. Each tile is 16×16 art pixels
+   drawn 3× larger (48 world px). Tiles are built once per region from its
+   colours. The map comes from smooth noise: winding dirt paths, small ponds,
+   patches of tall grass, and grass sprinkled with flowers and rocks.
+   ========================================================================= */
+const TILE = 48, ART = 16;
+// per-region path/water colours and weather (snow, falling leaves, petals, rain, pollen)
+const SCENERY = {
+  kanto:  { path:'#d8c088', water:'#4890e8', weather:null },
+  johto:  { path:'#d0a870', water:'#4880d0', weather:'leaves' },
+  hoenn:  { path:'#e4d49c', water:'#30a8e0', weather:null },
+  sinnoh: { path:'#b8c8d8', water:'#70a0d0', weather:'snow' },
+  unova:  { path:'#aca898', water:'#5888c0', weather:null },
+  kalos:  { path:'#c8b8a8', water:'#5898d8', weather:'petals' },
+  alola:  { path:'#d8b878', water:'#28c0d0', weather:null },
+  galar:  { path:'#a89070', water:'#4878a8', weather:'rain' },
+  paldea: { path:'#d8c090', water:'#40a0d8', weather:'pollen' },
+};
+function shade(hex, amt) { // amt < 0 darkens, > 0 lightens
+  const n = parseInt(hex.slice(1), 16), f = c => Math.round(amt < 0 ? c*(1 + amt) : c + (255 - c)*amt);
+  return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`;
+}
+// build a tile from rows of characters, each mapped to a colour (unmapped = transparent)
+function pixTile(rows, pal, base) {
+  const c = document.createElement('canvas'); c.width = ART; c.height = rows.length;
+  const x = c.getContext('2d');
+  if (base) { x.fillStyle = base; x.fillRect(0, 0, ART, rows.length); }
+  rows.forEach((row, y) => { for (let i = 0; i < row.length; i++) { const col = pal[row[i]]; if (col) { x.fillStyle = col; x.fillRect(i, y, 1, 1); } } });
+  return c;
+}
+const shiftRow = (row, n) => row.slice(-n) + row.slice(0, -n);
+function rotTile(src, quarter) { // rotate a 16×16 tile by quarter turns
+  const c = document.createElement('canvas'); c.width = c.height = ART;
+  const x = c.getContext('2d'); x.translate(ART/2, ART/2); x.rotate(quarter*Math.PI/2); x.drawImage(src, -ART/2, -ART/2);
+  return c;
+}
+const GRASS_ROWS = [
+  ['................', '..d.d.......l...', '...d........l.,.', '................', '......,.........', '.l..........d.d.', '.l...........d..', '................',
+   '........,.......', '...d.d..........', '....d.......,...', '..........l.....', '.,........l.....', '................', '......d.d.......', '.......d........'],
+  ['................', '......l.........', '......l....d.d..', '.,..........d...', '................', '..d.d.....,.....', '...d............', '..........l.....',
+   '..........l.....', '................', '.....,......d.d.', '.............d..', '.l..............', '.l......d.d.....', '.........d...,..', '................'],
+  ['................', '....,...........', '..........,.....', '................', '.,..............', '........,.......', '...............,', '...,............',
+   '................', '...........,....', '......,.........', '................', '..,.............', '.........,......', '................', '.....,......,...'],
+];
+const CLUMP = ['...L....', '..LML..L', '.LMKML.M', 'LMKMKMLK', 'MKMKMKMK', 'KMKMKMKM', 'MKMKMKMK', 'KKKKKKKK'];
+const TALL_ROWS = [...CLUMP, ...CLUMP].map(r => r + r);
+const FLOWER_ROWS = ['................', '................', '...F............', '..FyF.......F...', '...F.......FyF..', '...d........F...', '..dd........d...', '............dd..',
+                     '................', '................', '.......F........', '......FyF.......', '.......F........', '.......d........', '......dd........', '................'];
+const ROCK_ROWS = ['................', '................', '................', '................', '................', '......oooo......', '.....oOOOOo.....', '....oOWWOOOo....',
+                   '....oOWOOOOo....', '....oOOOOOOo....', '....ooOOOOoo....', '.....oooooo.....', '......ssss......', '................', '................', '................'];
+const tileSets = {};
+function tilesFor(R) {
+  if (tileSets[R.key]) return tileSets[R.key];
+  const th = R.theme, sc = SCENERY[R.key];
+  const pal = { '.':th.base, ',':th.alt, d:th.tuft, l:shade(th.base, .3), K:th.tallDark, M:th.tall, L:shade(th.tall, .35),
+                o:'#5a5a64', O:'#9a9aa6', W:'#dcdce4', s:'rgba(0,0,0,.18)', y:'#f8d030' };
+  const T = {};
+  T.grass = GRASS_ROWS.map(rows => pixTile(rows, pal));
+  // tall grass, plus a rustling frame with the blade tips leaning over
+  T.tall = [pixTile(TALL_ROWS, pal, th.base), pixTile(TALL_ROWS.map((r, i) => i % 8 < 3 ? shiftRow(r, 1) : r), pal, th.base)];
+  T.tips = pixTile(TALL_ROWS.slice(0, 6), pal);   // drawn over feet standing in tall grass
+  // flowers in both of the region's colours, two sway frames each
+  T.flower = th.fl.map(fc => [0, 1].map(f => pixTile(FLOWER_ROWS.map(r => f && /[Fy]/.test(r) ? shiftRow(r, 1) : r), { ...pal, F:fc }, th.base)));
+  T.rock = pixTile(ROCK_ROWS, pal, th.base);
+  // dirt path: base colour with darker and lighter specks
+  const path = shade(sc.path, 0), pd = shade(sc.path, -.18), pl = shade(sc.path, .3);
+  T.path = [0, 1].map(v => {
+    const rows = [];
+    for (let y = 0; y < ART; y++) { let r = ''; for (let x = 0; x < ART; x++) { const h = hash(x + v*31, y*7 + 3) % 23; r += h === 0 ? 'q' : h === 1 ? 'r' : 'p'; } rows.push(r); }
+    return pixTile(rows, { p:path, q:pd, r:pl });
+  });
+  // ragged grass fringe where a path meets grass (north edge, rotated for the others)
+  const fringe = []; for (let y = 0; y < ART; y++) { let r = ''; for (let x = 0; x < ART; x++) { const depth = 1 + hash(x, 99) % 3; r += y < depth ? '.' : y === depth && hash(x, 7) % 3 === 0 ? 'd' : ' '; } fringe.push(r); }
+  const fn = pixTile(fringe, pal);
+  T.pathEdge = [0, 1, 2, 3].map(q => rotTile(fn, q));
+  // water: three shimmer frames
+  const w = sc.water, wl = shade(w, .35), wd = shade(w, -.25);
+  T.water = [0, 1, 2].map(f => {
+    const rows = [];
+    for (let y = 0; y < ART; y++) { let r = ''; for (let x = 0; x < ART; x++) { const wave = (y % 6 === 2) && ((x + f*2 + (y > 8 ? 5 : 0)) % 8 < 3); r += wave ? 'x' : (y % 6 === 3 && (x + f*2) % 8 === 1) ? 'z' : 'w'; } rows.push(r); }
+    return pixTile(rows, { w, x:wl, z:'#ffffff' });
+  });
+  // sandy shore with a dark rim where water meets land
+  const shore = []; for (let y = 0; y < ART; y++) { let r = ''; for (let x = 0; x < ART; x++) { const depth = 2 + hash(x, 51) % 2; r += y < depth ? 'S' : y === depth ? 'D' : ' '; } shore.push(r); }
+  const sn = pixTile(shore, { S:shade(sc.path, .45), D:wd });
+  T.shore = [0, 1, 2, 3].map(q => rotTile(sn, q));
+  return tileSets[R.key] = T;
+}
+
+// smooth value noise in 0..1
+function vnoise(x, y, seed) {
+  const xi = Math.floor(x), yi = Math.floor(y), u = x - xi, v = y - yi;
+  const h = (a, b) => (hash(a + seed*7919, b - seed*104729) & 1023) / 1023, s = t => t*t*(3 - 2*t);
+  const a = h(xi, yi), b = h(xi + 1, yi), c = h(xi, yi + 1), d = h(xi + 1, yi + 1), su = s(u), sv = s(v);
+  return (a + (b - a)*su) + ((c + (d - c)*su) - (a + (b - a)*su))*sv;
+}
+// what each map cell is: 0 grass, 1 path, 2 tall grass, 3 water
+const cellCache = new Map();
+function cellKind(gx, gy) {
+  const region = G ? G.region : titleRegion, so = region*20; // each region gets its own map
+  const key = region*4294967296 + (gx + 32768)*65536 + (gy + 32768);
+  let k = cellCache.get(key);
+  if (k !== undefined) return k;
+  // paths follow the line where a smooth noise crosses 0.5. Dividing by the slope gives the
+  // distance (in cells) to that line, so roads stay about two cells wide everywhere.
+  const pnAt = (x, y) => vnoise(x/26, y/26, 5 + so)*.88 + vnoise(x/6, y/6, 6 + so)*.12;
+  const pn = pnAt(gx, gy);
+  let onPath = false;
+  if (Math.abs(pn - .5) < .08) {
+    const slope = Math.hypot(pnAt(gx + 1, gy) - pnAt(gx - 1, gy), pnAt(gx, gy + 1) - pnAt(gx, gy - 1)) / 2;
+    onPath = Math.abs(pn - .5) / Math.max(slope, .004) < 1.05;
   }
-  for (const [sx, sy] of tall) { // the classic "wild Pokémon live here" tall grass
-    ctx.fillStyle = th.tall; ctx.fillRect(sx, sy, S, S);
-    ctx.fillStyle = th.tallDark;
-    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
-      const bx = sx + 4 + i*15, by = sy + 6 + j*15;
-      ctx.beginPath(); ctx.moveTo(bx, by + 10); ctx.lineTo(bx + 3, by); ctx.lineTo(bx + 6, by + 6); ctx.lineTo(bx + 9, by); ctx.lineTo(bx + 12, by + 10); ctx.fill();
+  if (vnoise(gx/6, gy/6, 3 + so) > .84 && Math.hypot(gx, gy) > 4) k = 3;         // small ponds (never right at the start)
+  else if (onPath) k = 1;
+  else if (vnoise(gx/5, gy/5, 9 + so)*.8 + vnoise(gx/2, gy/2, 10 + so)*.2 > .64) k = 2; // tall grass patches
+  else k = 0;
+  if (cellCache.size > 40000) cellCache.clear();
+  cellCache.set(key, k);
+  return k;
+}
+const feetCell = (x, y) => cellKind(Math.floor(x/TILE), Math.floor(y/TILE));
+
+function drawGround(cx, cy) {
+  const R = REGIONS[G ? G.region : titleRegion], T = tilesFor(R);
+  cx = Math.round(cx); cy = Math.round(cy);
+  const now = performance.now()/1000, wf = Math.floor(now*2) % 3, ff = Math.floor(now*1.6) % 2;
+  const x0 = Math.floor(cx/TILE), y0 = Math.floor(cy/TILE), x1 = Math.floor((cx + W)/TILE), y1 = Math.floor((cy + H)/TILE);
+  // the tall-grass cell the player is walking through rustles
+  const rgx = G && P && P.moving ? Math.floor(P.x/TILE) : null, rgy = G && P ? Math.floor((P.y + P.r*.7)/TILE) : null;
+  const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+  for (let gy = y0; gy <= y1; gy++) for (let gx = x0; gx <= x1; gx++) {
+    const k = cellKind(gx, gy), h = hash(gx, gy), sx = gx*TILE - cx, sy = gy*TILE - cy;
+    if (k === 0) {
+      const d = (h >>> 8) % 100;
+      const tile = d < 5 ? T.flower[(h >>> 4) & 1][(ff + (h & 1)) % 2] : d < 7 ? T.rock : T.grass[h % 3];
+      ctx.drawImage(tile, sx, sy, TILE, TILE);
+    } else if (k === 2) {
+      ctx.drawImage(T.tall[gx === rgx && gy === rgy && Math.floor(now*8) % 2 ? 1 : 0], sx, sy, TILE, TILE);
+    } else if (k === 1) {
+      ctx.drawImage(T.path[h & 1], sx, sy, TILE, TILE);
+      DIRS.forEach(([dx, dy], q) => { const n = cellKind(gx + dx, gy + dy); if (n === 0 || n === 2) ctx.drawImage(T.pathEdge[q], sx, sy, TILE, TILE); });
+    } else {
+      ctx.drawImage(T.water[(wf + (h & 1)) % 3], sx, sy, TILE, TILE);
+      DIRS.forEach(([dx, dy], q) => { if (cellKind(gx + dx, gy + dy) !== 3) ctx.drawImage(T.shore[q], sx, sy, TILE, TILE); });
     }
   }
-  ctx.strokeStyle = th.tuft; ctx.lineWidth = 2; ctx.stroke(tufts);
-  for (const [fx, fy, c] of flowers) {
-    ctx.fillStyle = th.fl[c];
-    ctx.fillRect(fx - 4, fy, 3, 3); ctx.fillRect(fx + 1, fy, 3, 3); ctx.fillRect(fx - 1.5, fy - 2.5, 3, 3); ctx.fillRect(fx - 1.5, fy + 2.5, 3, 3);
-    ctx.fillStyle = '#f8d030'; ctx.fillRect(fx - 1, fy + .5, 2, 2);
+}
+
+// tall grass tips drawn over the feet of anyone standing in it (the classic Pokémon look)
+function drawGrassOverFeet(x, y, r) {
+  if (feetCell(x, y + r*.7) !== 2) return;
+  const T = tilesFor(REGIONS[G.region]), w = Math.max(30, r*2.6), h = w*6/16;
+  ctx.drawImage(T.tips, Math.round(x - w/2), Math.round(y + r*.95 - h), w, h);
+}
+
+/* Region weather, drawn in screen space and drifting against camera movement. */
+const weather = { flakes:[], lastX:0, lastY:0, kind:null };
+function drawWeather(cx, cy, dt) {
+  const kind = SCENERY[REGIONS[G ? G.region : titleRegion].key].weather;
+  if (!kind) return;
+  if (weather.kind !== kind) { weather.kind = kind; weather.flakes = []; }
+  const n = kind === 'rain' ? 90 : kind === 'pollen' ? 30 : 55;
+  while (weather.flakes.length < n) weather.flakes.push({ x:Math.random()*W, y:Math.random()*H, ph:Math.random()*6, s:.6 + Math.random()*.8 });
+  const mx = cx - weather.lastX, my = cy - weather.lastY; weather.lastX = cx; weather.lastY = cy;
+  const t = performance.now()/1000;
+  for (const f of weather.flakes) {
+    let vx, vy;
+    if (kind === 'snow') { vx = Math.sin(t + f.ph)*15; vy = 35*f.s; }
+    else if (kind === 'rain') { vx = -90; vy = 520*f.s; }
+    else if (kind === 'pollen') { vx = Math.sin(t*.7 + f.ph)*12; vy = -10*f.s; }
+    else { vx = 30 + Math.sin(t*1.5 + f.ph)*40; vy = 45*f.s; } // leaves, petals
+    f.x += vx*dt - (Math.abs(mx) < 200 ? mx*.8 : 0); f.y += vy*dt - (Math.abs(my) < 200 ? my*.8 : 0);
+    if (f.y > H + 10) { f.y = -10; f.x = Math.random()*W; } if (f.y < -10) { f.y = H + 10; f.x = Math.random()*W; }
+    if (f.x > W + 10) f.x = -10; if (f.x < -10) f.x = W + 10;
+    if (kind === 'snow') { ctx.fillStyle = 'rgba(255,255,255,.85)'; const s = f.s > 1 ? 4 : 3; ctx.fillRect(f.x, f.y, s, s); }
+    else if (kind === 'rain') { ctx.strokeStyle = 'rgba(200,220,255,.35)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(f.x, f.y); ctx.lineTo(f.x + 3, f.y - 14); ctx.stroke(); }
+    else if (kind === 'pollen') { ctx.fillStyle = 'rgba(255,250,200,.7)'; ctx.fillRect(f.x, f.y, 2, 2); }
+    else {
+      const flip = Math.sin(t*3 + f.ph);
+      ctx.fillStyle = kind === 'petals' ? (f.ph > 3 ? '#ffc0dc' : '#ffe0ee') : (f.ph > 4 ? '#e86030' : f.ph > 2 ? '#f0a030' : '#c84820');
+      ctx.fillRect(f.x, f.y, 5*Math.abs(flip) + 1, 3);
+    }
   }
 }
 
@@ -2518,8 +2702,10 @@ function render(now) {
   let cx, cy;
   if (G) { cx = G.cam.x + (Math.random() - .5)*G.shake; cy = G.cam.y + (Math.random() - .5)*G.shake; }
   else { cx = now*.03; cy = now*.012; }
+  cx = Math.round(cx); cy = Math.round(cy); // whole pixels keep the pixel art crisp
+  const rdt = Math.min(.05, (now - (render.last || now))/1000); render.last = now;
   drawGround(cx, cy);
-  if (!G) return;
+  if (!G) { drawWeather(cx, cy, rdt); return; }
   const T = G.t;
   ctx.save();
   ctx.translate(-cx, -cy);
@@ -2590,8 +2776,10 @@ function render(now) {
         });
         if (P.shiny && Math.floor(T*5) % 6 === 0) { ctx.fillStyle = '#fff8a0'; drawStar(P.x + Math.sin(T*2)*P.r*1.2, P.y - P.r*2, 4, T*3); }
       }
+      if (!hovers(P.types)) drawGrassOverFeet(P.x, P.y, P.r);
     } else if (c.cd !== undefined && !c.hitT) { // ally
       drawMon(c.id, c.x, c.y, 13, c.dirX > 0, { shiny:true, t:T + c.x*.001, moving:true, rate:1.5, hover:hovers(c.types), type:c.types[0], name:c.name });
+      if (!hovers(c.types)) drawGrassOverFeet(c.x, c.y, 13);
     } else {
       if (c.elite || c.boss) {
         ctx.strokeStyle = c.boss ? 'rgba(255,60,60,.6)' : 'rgba(255,230,80,.8)'; ctx.lineWidth = 2;
@@ -2603,6 +2791,7 @@ function render(now) {
         scale:age < .3 ? easeOutBack(Math.max(0, age/.3)) : 1,
         shiny:c.shiny, flash:c.flash, type:c.types[0], name:c.name,
       });
+      if (!c.boss && !hovers(c.types)) drawGrassOverFeet(c.x, c.y, c.r);
       if (c.freeze > 0) { ctx.fillStyle = 'rgba(150,220,240,.45)'; ctx.beginPath(); ctx.arc(c.x, c.y - c.r*.2, c.r*1.1, 0, Math.PI*2); ctx.fill(); }
       if (c.shiny && Math.floor(T*6 + c.x) % 4 === 0) { ctx.fillStyle = '#fff8a0'; drawStar(c.x + Math.sin(T*3)*c.r, c.y - c.r*1.3, 5, T); }
       if (c.elite && c.hp < c.maxHp) {
@@ -2642,6 +2831,21 @@ function render(now) {
       for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(p.x, p.y - i*p.r*.35, p.r*(1 - i*.25), T*12 + i, T*12 + i + 4); ctx.stroke(); }
     } else if (p.kind === 'star') {
       ctx.fillStyle = '#ffe848'; ctx.strokeStyle = '#c09010'; drawStar(p.x, p.y, p.r, p.age*10); ctx.lineWidth = 1; ctx.stroke();
+    } else if (p.kind === 'gyro') {
+      // spinning steel ball with turning spokes
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.age*25);
+      ctx.fillStyle = '#9aa0b4'; ctx.beginPath(); ctx.arc(0, 0, p.r, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = '#4a5068'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.strokeStyle = '#e8ecf8'; ctx.lineWidth = 2;
+      for (let i = 0; i < 3; i++) { const a = i*2.094; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(a)*p.r*.85, Math.sin(a)*p.r*.85); ctx.stroke(); }
+      ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(0, 0, p.r*.25, 0, Math.PI*2); ctx.fill();
+      ctx.restore();
+    } else if (p.kind === 'coin') {
+      // a gold coin flipping as it flies
+      const w = Math.abs(Math.cos(p.age*18));
+      ctx.fillStyle = '#c89010'; ctx.beginPath(); ctx.ellipse(p.x, p.y, p.r*Math.max(.15, w), p.r, 0, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#ffe060'; ctx.beginPath(); ctx.ellipse(p.x, p.y, p.r*.75*Math.max(.12, w), p.r*.75, 0, 0, Math.PI*2); ctx.fill();
+      if (w > .5) { ctx.fillStyle = '#fff8c0'; ctx.fillRect(p.x - 1, p.y - p.r*.5, 2, p.r); }
     } else if (p.kind === 'needle') {
       const sp = Math.hypot(p.vx, p.vy) || 1, ux = p.vx/sp, uy = p.vy/sp;
       ctx.strokeStyle = '#d8e860'; ctx.lineWidth = 3; ctx.lineCap = 'round';
@@ -2737,6 +2941,8 @@ function render(now) {
     v.addColorStop(0, 'rgba(200,0,0,0)'); v.addColorStop(1, `rgba(200,0,0,${.25 + Math.sin(T*6)*.08})`);
     ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
   }
+
+  drawWeather(cx, cy, G.paused || G.choosing ? 0 : rdt);
 
   // virtual joystick
   if (stick) {
