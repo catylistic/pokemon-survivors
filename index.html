@@ -84,7 +84,9 @@
   .btn2:active{transform:translateY(2px);box-shadow:0 1px 0 #17457a}
   .btn2.ghost{background:#fff;color:var(--ink);border-color:var(--line);box-shadow:0 3px 0 var(--line)}
   .card .best{font-size:11px;color:#b07800;font-weight:700;min-height:14px}
-  #toasts{position:fixed;right:12px;top:70px;display:flex;flex-direction:column;gap:8px;z-index:20;pointer-events:none}
+  #pauseBtn{position:absolute;right:12px;top:62px;pointer-events:auto;width:40px;height:36px;font-size:11px;background:var(--paper);color:var(--ink);border:3px solid var(--line);border-radius:8px;cursor:pointer;box-shadow:0 3px 0 rgba(0,0,0,.3)}
+  .padfocus{outline:4px solid #e3350d!important;outline-offset:3px}
+  #toasts{position:fixed;right:12px;top:108px;display:flex;flex-direction:column;gap:8px;z-index:20;pointer-events:none}
   .toast{background:var(--paper);border:3px solid var(--line);border-radius:10px;padding:8px 12px;display:flex;gap:10px;align-items:center;box-shadow:0 4px 0 rgba(0,0,0,.3);animation:tin .35s ease-out;max-width:300px}
   .toast b,.ach b{display:block;font-size:13px}
   .toast small,.ach small{font-size:12px;color:#4a5468}
@@ -138,6 +140,7 @@
   <div id="timer" class="px">00:00</div>
   <div id="kills" class="px">KO 0</div>
   <div id="score" class="px">0</div>
+  <button id="pauseBtn" class="px" aria-label="Pause">II</button>
   <div id="loadout"><div class="lrow" id="lmoves"></div><div class="lrow" id="litems"></div><div class="lrow" id="lallies"></div></div>
   <div id="bossbar" class="hidden"><div id="bossname" class="px"></div><div class="bar"><div id="bossfill"></div></div></div>
   <div id="banner" class="px"></div>
@@ -156,12 +159,12 @@
     <p class="sub" id="regionInfo"></p>
     <div id="starters"></div>
     <div class="help">
-      <div><b>Move:</b> WASD / arrow keys, or hold the mouse / touch the screen. Attacks fire on their own.</div>
+      <div><b>Move:</b> WASD / arrow keys, a controller, hold the mouse, or drag the touch joystick. Attacks fire on their own.</div>
       <div><b>Type matchups matter:</b> super effective hits do 2× (or 4×), resisted hits do ½×. Enemies' attacks follow the chart too.</div>
       <div><b>STAB:</b> moves that share your Pokémon's type do 1.5× damage.</div>
       <div><b>Evolve:</b> you evolve at Lv 12 and Lv 28. Max a move to Lv 6 while holding its type item to unlock its evolved form.</div>
       <div><b>Shiny Pokémon</b> drop Poké Balls. Grab one to catch it as an ally (up to 4).</div>
-      <div><b>Pause:</b> Esc or P. Pick level-up options with 1 / 2 / 3. <b>M</b> mutes sound.</div>
+      <div><b>Pause:</b> Esc, P, the II button or Start. Pick level-up options with 1 / 2 / 3 (or the stick + A). <b>M</b> mutes sound.</div>
     </div>
   </div>
 </div>
@@ -192,7 +195,8 @@
     <p class="sub" id="endSub"></p>
     <div class="big px" id="endScore"></div>
     <p class="sub" id="endRank"></p>
-    <div class="namerow"><label for="nameIn">Trainer name</label><input id="nameIn" maxlength="14" autocomplete="off"></div>
+    <div class="namerow"><label for="nameIn">Trainer name</label><input id="nameIn" maxlength="14" autocomplete="off"><button class="btn2" id="postBtn">Post to world leaderboard</button></div>
+    <p class="sub" id="postNote"></p>
     <div class="stats" id="endStats"></div>
     <div class="row"><button class="btn" id="nextBtn">Next region</button><button class="btn" id="againBtn">Play again</button><button class="btn2" id="endLbBtn">Leaderboard</button></div>
   </div>
@@ -209,7 +213,12 @@
 <div id="lbScreen" class="screen hidden">
   <div class="box">
     <h2 class="px">Leaderboard</h2>
+    <div class="menu" id="lbTabs">
+      <button class="btn2" data-lb="world">World</button>
+      <button class="btn2 ghost" data-lb="local">This device</button>
+    </div>
     <div class="vol"><label>Region <select id="lbFilter"></select></label></div>
+    <p class="sub" id="lbNote"></p>
     <div class="lbwrap">
       <table class="lb">
         <thead><tr><th>#</th><th>Trainer</th><th>Region</th><th>Pokémon</th><th>Score</th><th>Time</th><th>Lv</th><th>KOs</th></tr></thead>
@@ -776,6 +785,46 @@ Save.load();
 if (Object.keys(Save.data.wins).length && !Save.data.unlocked) { Save.data.unlocked = 1; Save.data.regionWins.kanto = true; }
 
 /* =========================================================================
+   World leaderboard, stored in a Supabase database (see supabase-setup.sql).
+   Paste your project's URL and its public "anon" / publishable key here to
+   turn it on. That key is meant to be public; the database only allows
+   reading scores and adding new ones. Leave blank to stay offline.
+   ========================================================================= */
+const ONLINE = {
+  url: '',
+  key: '',
+};
+const Online = {
+  get on() { return !!(ONLINE.url && ONLINE.key); },
+  headers(extra) {
+    return Object.assign({ apikey:ONLINE.key, Authorization:'Bearer ' + ONLINE.key, 'Content-Type':'application/json' }, extra);
+  },
+  async submit(e) {
+    const clamp = (v, hi) => Math.max(0, Math.min(hi, Math.round(v)));
+    const row = {
+      name:(e.name || 'Trainer').slice(0, 14), region:e.region || 0, starter:e.starter, mon_id:e.id, mon:e.mon.slice(0, 20),
+      score:clamp(e.score, 2e7), t:clamp(e.t, 7200), level:Math.max(1, clamp(e.level, 500)), kills:clamp(e.kills, 2e6), won:!!e.won,
+    };
+    const r = await fetch(ONLINE.url + '/rest/v1/scores', { method:'POST', headers:this.headers({ Prefer:'return=representation' }), body:JSON.stringify(row), keepalive:true });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return (await r.json())[0];
+  },
+  async top(region, limit = 25) {
+    let q = `/rest/v1/scores?select=id,name,region,starter,mon_id,mon,score,t,level,kills,won&order=score.desc,created_at.asc&limit=${limit}`;
+    if (region !== 'all') q += `&region=eq.${+region}`;
+    const r = await fetch(ONLINE.url + q, { headers:this.headers() });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  },
+  // world rank = how many scores beat this one, plus one
+  async rank(score) {
+    const r = await fetch(ONLINE.url + `/rest/v1/scores?select=id&score=gt.${+score}`, { method:'HEAD', headers:this.headers({ Prefer:'count=exact' }) });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return +(r.headers.get('content-range') || '*/0').split('/')[1] + 1;
+  },
+};
+
+/* =========================================================================
    Achievements. test(run, save) -> bool
    ========================================================================= */
 const ACHIEVEMENTS = [
@@ -990,10 +1039,126 @@ addEventListener('keydown', e => {
 addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; pointer = null; if (G && G.running && !G.choosing && !G.paused) togglePause(); });
 addEventListener('pointerdown', () => Sound.init());
-cv.addEventListener('pointerdown', e => { pointer = { x:e.clientX, y:e.clientY }; cv.setPointerCapture(e.pointerId); });
-cv.addEventListener('pointermove', e => { if (pointer) { pointer.x = e.clientX; pointer.y = e.clientY; } });
-cv.addEventListener('pointerup', () => { pointer = null; });
-cv.addEventListener('pointercancel', () => { pointer = null; });
+
+// Mouse: hold the button and the player walks toward the cursor.
+// Touch: a floating virtual joystick appears wherever your thumb lands.
+const STICK_R = 56;
+let stick = null, touchUsed = false;
+const capture = id => { try { cv.setPointerCapture(id); } catch (e) {} };
+cv.addEventListener('pointerdown', e => {
+  if (e.pointerType === 'mouse') { pointer = { x:e.clientX, y:e.clientY }; capture(e.pointerId); return; }
+  touchUsed = true;
+  if (!stick) { stick = { id:e.pointerId, ox:e.clientX, oy:e.clientY, x:e.clientX, y:e.clientY }; capture(e.pointerId); }
+});
+cv.addEventListener('pointermove', e => {
+  if (e.pointerType === 'mouse') { if (pointer) { pointer.x = e.clientX; pointer.y = e.clientY; } return; }
+  if (!stick || e.pointerId !== stick.id) return;
+  stick.x = e.clientX; stick.y = e.clientY;
+  const dx = stick.x - stick.ox, dy = stick.y - stick.oy, d = Math.hypot(dx, dy);
+  if (d > STICK_R) { stick.ox = stick.x - dx/d*STICK_R; stick.oy = stick.y - dy/d*STICK_R; } // base follows the thumb
+});
+const endPointer = e => { if (e.pointerType === 'mouse') pointer = null; else if (stick && e.pointerId === stick.id) stick = null; };
+cv.addEventListener('pointerup', endPointer);
+cv.addEventListener('pointercancel', endPointer);
+
+// One movement vector from every input, length 0..1 (analog sticks can walk slowly)
+function moveInput() {
+  let x = 0, y = 0;
+  if (keys.a || keys.arrowleft) x--; if (keys.d || keys.arrowright) x++;
+  if (keys.w || keys.arrowup) y--;   if (keys.s || keys.arrowdown) y++;
+  if (x || y) { const l = Math.hypot(x, y); return [x/l, y/l]; }
+  if (Pad.move[0] || Pad.move[1]) return Pad.move;
+  if (stick) {
+    const dx = stick.x - stick.ox, dy = stick.y - stick.oy, d = Math.hypot(dx, dy);
+    if (d > 6) { const m = Math.min(1, (d - 6)/(STICK_R*.7)); return [dx/d*m, dy/d*m]; }
+  }
+  if (pointer) {
+    const dx = pointer.x - W/2, dy = pointer.y - H/2, d = Math.hypot(dx, dy);
+    if (d > 12) return [dx/d, dy/d];
+  }
+  return [0, 0];
+}
+
+/* =========================================================================
+   Gamepad: left stick / d-pad to move, Start to pause. In menus the stick
+   moves a highlight between buttons, A picks, B goes back.
+   ========================================================================= */
+const Pad = { move:[0, 0], prev:[], navT:0, navHeld:false, gp:null, rumbleT:0 };
+addEventListener('gamepadconnected', e => showNote(`Controller connected: ${e.gamepad.id.split('(')[0].trim() || 'Gamepad'}`));
+addEventListener('gamepaddisconnected', () => showNote('Controller disconnected'));
+function topScreen() {
+  for (const id of ['lbScreen', 'achScreen', 'levelup', 'pause', 'end', 'title']) { const el = $(id); if (!el.classList.contains('hidden')) return el; }
+  return null;
+}
+function focusables(scr) {
+  return [...scr.querySelectorAll('button:not(:disabled), .card, input, select')].filter(el => el.offsetParent !== null);
+}
+function padFocus(el) {
+  document.querySelectorAll('.padfocus').forEach(x => x.classList.remove('padfocus'));
+  if (!el) return;
+  el.classList.add('padfocus'); el.focus({ preventScroll:true }); el.scrollIntoView({ block:'nearest' });
+}
+function padNavigate(scr, dx, dy) {
+  const items = focusables(scr);
+  if (!items.length) return;
+  const cur = items.includes(document.activeElement) ? document.activeElement : null;
+  if (!cur) { padFocus(items[0]); return; }
+  // sliders and dropdowns use left/right to change their value
+  if (dx && (cur.type === 'range' || cur.tagName === 'SELECT')) {
+    if (cur.type === 'range') cur.value = Math.min(+cur.max, Math.max(+cur.min, +cur.value + dx*(+cur.step || .1)));
+    else cur.selectedIndex = (cur.selectedIndex + dx + cur.options.length) % cur.options.length;
+    cur.dispatchEvent(new Event(cur.type === 'range' ? 'input' : 'change')); return;
+  }
+  const a = cur.getBoundingClientRect(), ax = a.left + a.width/2, ay = a.top + a.height/2;
+  let best = null, bs = Infinity;
+  for (const el of items) {
+    if (el === cur) continue;
+    const b = el.getBoundingClientRect(), vx = b.left + b.width/2 - ax, vy = b.top + b.height/2 - ay;
+    const along = vx*dx + vy*dy;
+    if (along <= 4) continue;
+    const score = along + Math.abs(vx*dy - vy*dx) * 2.5;
+    if (score < bs) { bs = score; best = el; }
+  }
+  if (best) padFocus(best);
+}
+function rumble(ms, strength) {
+  const gp = Pad.gp;
+  if (!gp || !gp.vibrationActuator || performance.now() < Pad.rumbleT) return;
+  Pad.rumbleT = performance.now() + ms;
+  try { gp.vibrationActuator.playEffect('dual-rumble', { duration:ms, strongMagnitude:strength, weakMagnitude:strength*.6 }); } catch (e) {}
+}
+function pollPad(dt) {
+  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  let gp = null;
+  for (const p of pads) if (p && p.connected) { gp = p; break; }
+  Pad.gp = gp;
+  if (!gp) { Pad.move = [0, 0]; return; }
+  const down = i => !!(gp.buttons[i] && gp.buttons[i].pressed);
+  const hit = i => down(i) && !Pad.prev[i];
+  let x = gp.axes[0] || 0, y = gp.axes[1] || 0;
+  const m = Math.hypot(x, y);
+  if (m < .22) { x = 0; y = 0; } else { const k = Math.min(1, (m - .22)/.68)/m; x *= k; y *= k; }
+  if (down(14)) x = -1; if (down(15)) x = 1; if (down(12)) y = -1; if (down(13)) y = 1;
+  const l = Math.hypot(x, y); if (l > 1) { x /= l; y /= l; }
+  if (gp.buttons.some(b => b.pressed)) Sound.init();
+  const scr = topScreen();
+  if (scr) {
+    Pad.move = [0, 0];
+    const dx = Math.abs(x) > .5 ? Math.sign(x) : 0, dy = dx ? 0 : Math.abs(y) > .5 ? Math.sign(y) : 0;
+    Pad.navT -= dt;
+    if (dx || dy) {
+      if (!Pad.navHeld || Pad.navT <= 0) { padNavigate(scr, dx, dy); Pad.navT = Pad.navHeld ? .14 : .38; }
+      Pad.navHeld = true;
+    } else Pad.navHeld = false;
+    if (hit(0) && performance.now() > (Pad.lockUntil || 0)) { const f = document.activeElement; if (f && scr.contains(f) && f !== document.body) f.click(); else padFocus(focusables(scr)[0]); }
+    if (hit(1)) { if (!closeOverlay() && G && G.paused) togglePause(); }
+    if (hit(9) && G && G.paused) togglePause();
+  } else {
+    Pad.move = [x, y];
+    if (hit(9) && G && G.running && !G.choosing) togglePause();
+  }
+  Pad.prev = gp.buttons.map(b => b.pressed);
+}
 
 /* =========================================================================
    Game state
@@ -1164,7 +1329,7 @@ function hurtPlayer(dmg, type) {
   const m = Math.max(.5, Math.min(2, eff(type, P.types)));
   const d = dmg * m * (1 - G.stat.armor);
   P.hp -= d; P.inv = .35; P.hurt = .2;
-  G.lastHurt = G.t; Sound.sfx('hurt');
+  G.lastHurt = G.t; Sound.sfx('hurt'); rumble(120, m > 1 ? .7 : .4);
   addText(P.x, P.y - 26, '-' + Math.round(d), m > 1 ? '#ff6040' : '#ff9090', m > 1 ? 11 : 9);
   if (P.hp <= 0) { P.hp = 0; endGame(false); }
 }
@@ -1262,7 +1427,7 @@ function spawning(dt) {
     $('bossname').textContent = b.name.toUpperCase();
     $('bossbar').classList.remove('hidden');
     banner(b.final ? `${b.name.toUpperCase()} has awoken!` : `A wild ${b.name.toUpperCase()} appeared!`);
-    Sound.sfx('alarm'); Sound.music(b.final ? 'final' : 'boss', R.index);
+    Sound.sfx('alarm'); Sound.music(b.final ? 'final' : 'boss', R.index); rumble(500, .8);
   }
   // swarms (a flock of whatever flying Pokémon are around right now)
   if (SWARMS[G.swarmIdx] !== undefined && G.t >= SWARMS[G.swarmIdx]) {
@@ -1314,22 +1479,15 @@ function update(dt) {
 }
 
 function updatePlayer(dt) {
-  let mx = 0, my = 0;
-  if (keys.a || keys.arrowleft) mx--; if (keys.d || keys.arrowright) mx++;
-  if (keys.w || keys.arrowup) my--;   if (keys.s || keys.arrowdown) my++;
-  if (!mx && !my && pointer) {
-    const dx = pointer.x - W/2, dy = pointer.y - H/2, d = Math.hypot(dx, dy);
-    if (d > 12) { mx = dx/d; my = dy/d; }
-  }
+  const [mx, my] = moveInput();
   const len = Math.hypot(mx, my);
-  if (len) {
-    mx /= len; my /= len;
+  if (len > .01) {
     P.x += mx * G.stat.speed * dt; P.y += my * G.stat.speed * dt;
-    P.fx = mx; P.fy = my;
-    if (Math.abs(mx) > .2) P.dirX = mx;
-    P.up = my < -.6;
+    P.fx = mx/len; P.fy = my/len;
+    if (Math.abs(P.fx) > .2) P.dirX = P.fx;
+    P.up = P.fy < -.6;
   }
-  P.moving = !!len;
+  P.moving = len > .01;
   P.inv -= dt; P.hurt -= dt; P.evoT -= dt;
   P.hp = Math.min(P.maxHp, P.hp + G.stat.regen*dt);
   // trail for allies
@@ -1650,6 +1808,8 @@ function openLevelUp() {
     box.appendChild(b);
   });
   $('levelup').classList.remove('hidden');
+  Pad.lockUntil = performance.now() + 450; // so a held button doesn't instantly pick
+  if (Pad.gp) padFocus(box.firstChild);
 }
 
 /* =========================================================================
@@ -1706,6 +1866,16 @@ function togglePause() {
   }
 }
 $('resumeBtn').onclick = togglePause;
+$('pauseBtn').onclick = () => { if (G && G.running && !G.choosing) togglePause(); };
+function showNote(text) {
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = `<div><b>${esc(text)}</b></div>`;
+  const box = $('toasts');
+  box.appendChild(el);
+  while (box.children.length > 4) box.firstChild.remove();
+  setTimeout(() => el.remove(), 3000);
+}
 $('quitBtn').onclick = e => { e.preventDefault(); toTitle(); };
 $('againBtn').onclick = toTitle;
 $('volMusic').oninput = e => { Save.data.settings.music = +e.target.value; Sound.applyVolumes(); Save.write(); };
@@ -1756,16 +1926,61 @@ function renderAch() {
 // ---- leaderboard ----
 $('lbFilter').innerHTML = '<option value="all">All regions</option>' + REGIONS.map((R, i) => `<option value="${i}">${R.name}</option>`).join('');
 $('lbFilter').onchange = renderLB;
-function renderLB() {
+let lbMode = Online.on ? 'world' : 'local', lbReq = 0;
+document.querySelectorAll('[data-lb]').forEach(b => b.onclick = () => { lbMode = b.dataset.lb; renderLB(); });
+const lbRow = (s, i, me) => `
+    <tr class="${me ? 'me' : ''}">
+      <td><b>${i + 1}</b></td><td>${esc(s.name)}</td><td>${(REGIONS[s.region || 0] || REGIONS[0]).name}</td>
+      <td><img src="${monURL(s.id)}" alt="">${esc(s.mon)}${s.won ? ' ★' : ''}</td>
+      <td><b>${(+s.score).toLocaleString()}</b></td><td>${fmtTime(s.t)}</td><td>${s.level}</td><td>${(+s.kills).toLocaleString()}</td>
+    </tr>`;
+const lbMessage = msg => `<tr><td colspan="8" class="center">${msg}</td></tr>`;
+async function renderLB() {
+  $('lbTabs').classList.toggle('hidden', !Online.on);
+  document.querySelectorAll('[data-lb]').forEach(b => b.classList.toggle('ghost', b.dataset.lb !== lbMode));
   const f = $('lbFilter').value;
-  const rows = Save.data.scores.filter(s => f === 'all' || (s.region || 0) === +f).slice(0, 10);
-  $('lbBody').innerHTML = rows.length ? rows.map((s, i) => `
-    <tr class="${G && G.entry === s ? 'me' : ''}">
-      <td><b>${i + 1}</b></td><td>${esc(s.name)}</td><td>${REGIONS[s.region || 0].name}</td>
-      <td><img src="${monURL(s.id)}" alt="">${s.mon}${s.won ? ' ★' : ''}</td>
-      <td><b>${s.score.toLocaleString()}</b></td><td>${fmtTime(s.t)}</td><td>${s.level}</td><td>${s.kills.toLocaleString()}</td>
-    </tr>`).join('') : '<tr><td colspan="8" class="center">No runs yet. Go play!</td></tr>';
+  if (lbMode === 'local' || !Online.on) {
+    $('lbNote').textContent = Online.on ? 'Runs played on this device.' : '';
+    const rows = Save.data.scores.filter(s => f === 'all' || (s.region || 0) === +f).slice(0, 10);
+    $('lbBody').innerHTML = rows.length ? rows.map((s, i) => lbRow(s, i, G && G.entry === s)).join('') : lbMessage('No runs yet. Go play!');
+    return;
+  }
+  $('lbNote').textContent = 'Top 25 trainers worldwide.';
+  $('lbBody').innerHTML = lbMessage('Loading…');
+  const req = ++lbReq;
+  try {
+    const rows = await Online.top(f);
+    if (req !== lbReq || lbMode !== 'world') return; // a newer request or tab switch won
+    const mine = new Set(Save.data.myOnline || []);
+    $('lbBody').innerHTML = rows.length
+      ? rows.map((s, i) => lbRow({ ...s, id:s.mon_id }, i, mine.has(s.id))).join('')
+      : lbMessage('No scores yet. Be the first!');
+  } catch (e) {
+    if (req === lbReq) $('lbBody').innerHTML = lbMessage("Couldn't reach the world leaderboard. Check your connection.");
+  }
 }
+
+// Post the finished run to the world leaderboard (once).
+async function postScore() {
+  const e = G && G.entry;
+  if (!e || !Online.on || e.onlineId || e.posting) return;
+  e.posting = true;
+  $('postBtn').disabled = true; $('postNote').textContent = 'Posting…';
+  try {
+    const row = await Online.submit(e);
+    e.onlineId = row.id;
+    (Save.data.myOnline = Save.data.myOnline || []).push(row.id);
+    Save.write();
+    $('postBtn').textContent = 'Posted!'; $('nameIn').disabled = true;
+    const rank = await Online.rank(e.score).catch(() => 0);
+    $('postNote').textContent = rank ? `World rank #${rank.toLocaleString()}` : 'Posted to the world leaderboard.';
+  } catch (err) {
+    $('postBtn').disabled = false;
+    $('postNote').textContent = "Couldn't post your score. Check your connection and try again.";
+  }
+  e.posting = false;
+}
+$('postBtn').onclick = postScore;
 function openScreen(id) { if (id === 'lbScreen') renderLB(); else renderAch(); $(id).classList.remove('hidden'); }
 function closeOverlay() {
   for (const id of ['lbScreen', 'achScreen']) if (!$(id).classList.contains('hidden')) { $(id).classList.add('hidden'); return true; }
@@ -1773,7 +1988,7 @@ function closeOverlay() {
 }
 document.querySelectorAll('[data-close]').forEach(b => b.onclick = () => { b.closest('.screen').classList.add('hidden'); renderTitle(); });
 $('lbBtn').onclick = () => openScreen('lbScreen');
-$('endLbBtn').onclick = () => openScreen('lbScreen');
+$('endLbBtn').onclick = () => { lbMode = Online.on ? 'world' : 'local'; openScreen('lbScreen'); };
 $('achBtn').onclick = () => openScreen('achScreen');
 $('sndBtn').onclick = () => toggleMute();
 function toggleMute() {
@@ -1821,13 +2036,17 @@ function endGame(won) {
   $('endRank').textContent = rank === 1 && S.scores.length > 1 ? 'New high score!'
     : best[0] === entry && best.length > 1 ? `New best for the ${P.starter.stages[0][1]} line! Overall rank #${rank}`
     : rank ? `Leaderboard rank #${rank}` : 'Not in the top 100 this time.';
-  $('nameIn').value = S.settings.name;
+  $('nameIn').value = S.settings.name; $('nameIn').disabled = false;
+  $('postBtn').classList.toggle('hidden', !Online.on);
+  $('postBtn').disabled = false; $('postBtn').textContent = 'Post to world leaderboard';
+  $('postNote').textContent = Online.on ? 'Pick a name. Your score goes on the world leaderboard when you post it or leave this screen.' : '';
   $('endStats').innerHTML = statRows();
   $('levelup').classList.add('hidden');
   $('end').classList.remove('hidden');
   Sound.music(won ? 'victory' : 'gameover');
 }
 function toTitle() {
+  if (G && G.entry && !G.running) postScore(); // finished runs are posted when you leave the results screen
   G = null; P = null;
   for (const s of ['end', 'pause', 'levelup', 'hud', 'lbScreen', 'achScreen']) $(s).classList.add('hidden');
   $('bossbar').classList.add('hidden');
@@ -2139,6 +2358,17 @@ function render(now) {
     v.addColorStop(0, 'rgba(200,0,0,0)'); v.addColorStop(1, `rgba(200,0,0,${.25 + Math.sin(T*6)*.08})`);
     ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
   }
+
+  // virtual joystick
+  if (stick) {
+    const dx = stick.x - stick.ox, dy = stick.y - stick.oy, d = Math.hypot(dx, dy), k = d > STICK_R ? STICK_R/d : 1;
+    ctx.fillStyle = 'rgba(255,255,255,.18)'; ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(stick.ox, stick.oy, STICK_R, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    drawPokeball(stick.ox + dx*k, stick.oy + dy*k, 22);
+  } else if (touchUsed && G.running && G.t < 8) {
+    ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.font = '10px "Press Start 2P", monospace'; ctx.textAlign = 'center';
+    ctx.fillText('Touch and drag anywhere to move', W/2, H - 40);
+  }
 }
 
 /* =========================================================================
@@ -2147,6 +2377,7 @@ function render(now) {
 let last = performance.now();
 function frame(now) {
   const dt = Math.min(.05, (now - last)/1000); last = now;
+  pollPad(dt);
   if (G && G.running && !G.paused && !G.choosing) update(dt);
   render(now);
   if (G) updateHUD(G.running && !G.paused ? dt : 0);
