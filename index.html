@@ -967,7 +967,7 @@ const ONLINE = {
    Put your GoatCounter site code here (the "xyz" in xyz.goatcounter.com) to turn it on.
    It records visits (with where people came from), runs started (region/starter) and wins.
    Nothing is sent when playing from your own computer. */
-const STATS = { code: '' };
+const STATS = { code: 'pokemonsurvivors' };
 const Stats = {
   get on() { return !!STATS.code && /^https?:$/.test(location.protocol) && !/^(localhost|127\.|\[::1\])/.test(location.hostname); },
   send(path, title, event) {
