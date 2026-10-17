@@ -1009,6 +1009,8 @@ const Online = {
       const err = new Error('HTTP ' + r.status);
       const body = await r.json().catch(() => ({}));
       err.rejectedName = body.code === '23514' && /name/.test(body.message || ''); // database check constraint on the name
+      err.rateLimited = /rate limited/.test(body.message || '');                   // from the scores_guard trigger
+      err.implausible = /implausible/.test(body.message || '');
       throw err;
     }
     return (await r.json())[0];
@@ -2313,7 +2315,10 @@ async function postScore(auto) {
   } catch (err) {
     $('postBtn').disabled = false;
     $('postNote').textContent = err.rejectedName ? "The leaderboard didn't accept that name. Please pick a different one."
+      : err.rateLimited ? 'Posting too fast. Wait a few seconds and press Post again.'
+      : err.implausible ? "The leaderboard couldn't verify this score, so it wasn't posted."
       : "Couldn't post your score. Check your connection and try again.";
+    if (err.implausible) $('postBtn').disabled = true;
   }
   e.posting = false;
 }
