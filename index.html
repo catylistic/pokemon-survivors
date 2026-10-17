@@ -1,0 +1,2158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pokémon Survivors</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#1d2330; --paper:#f8f8f0; --line:#3a4256; --accent:#e3350d;
+    --hp-hi:#48d058; --hp-mid:#f8c030; --hp-lo:#e83838; --xp:#40a8f8;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:#2a3a28;color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;user-select:none}
+  canvas{display:block;position:fixed;inset:0;touch-action:none}
+  .px{font-family:"Press Start 2P",monospace}
+  .hidden{display:none!important}
+
+  /* ---------- HUD ---------- */
+  #hud{position:fixed;inset:0;pointer-events:none}
+  #xpbar{position:absolute;left:0;right:0;top:0;height:16px;background:#202838;border-bottom:2px solid #000}
+  #xpfill{height:100%;width:0;background:linear-gradient(#78c8ff,var(--xp));transition:width .1s}
+  #lvl{position:absolute;right:8px;top:3px;font-size:9px;color:#fff;text-shadow:1px 1px 0 #000}
+  #status{position:absolute;left:10px;top:24px;display:flex;gap:8px;align-items:center;background:var(--paper);border:3px solid var(--line);border-radius:10px;padding:6px 10px 6px 6px;box-shadow:0 3px 0 rgba(0,0,0,.3)}
+  #portrait{width:48px;height:48px;image-rendering:pixelated;background:#dfe8d0;border-radius:6px}
+  #pname{font-size:10px;margin-bottom:4px;display:flex;gap:6px;align-items:center}
+  .hpwrap{display:flex;align-items:center;gap:4px;font-size:8px}
+  .hpwrap b{color:#f8a800;background:#404858;padding:1px 3px;border-radius:3px}
+  .hpbar{width:150px;height:8px;background:#404858;border:2px solid #404858;border-radius:5px;overflow:hidden}
+  #hpfill{height:100%;width:100%;background:var(--hp-hi)}
+  #hptext{font-size:8px;text-align:right;margin-top:3px}
+  #timer{position:absolute;left:50%;top:26px;transform:translateX(-50%);font-size:20px;color:#fff;text-shadow:2px 2px 0 #000}
+  #kills{position:absolute;right:12px;top:28px;font-size:11px;color:#fff;text-shadow:2px 2px 0 #000}
+  #loadout{position:absolute;left:10px;top:100px;display:flex;flex-direction:column;gap:4px}
+  .lrow{display:flex;gap:4px;flex-wrap:wrap;max-width:300px}
+  .mv{font-size:9px;font-weight:700;color:#fff;padding:3px 6px;border-radius:4px;border:2px solid rgba(0,0,0,.35);text-shadow:1px 1px 0 rgba(0,0,0,.5);white-space:nowrap}
+  .mv.evo{box-shadow:0 0 0 2px #ffe060}
+  .it{width:30px;height:30px;background:rgba(248,248,240,.9);border:2px solid var(--line);border-radius:6px;position:relative}
+  .it img{width:100%;height:100%;image-rendering:pixelated}
+  .it span{position:absolute;right:-2px;bottom:-4px;font-size:9px;font-weight:800;color:#fff;text-shadow:1px 1px 0 #000,-1px -1px 0 #000}
+  #bossbar{position:absolute;left:50%;top:62px;transform:translateX(-50%);width:min(520px,70vw);text-align:center}
+  #bossname{font-size:10px;color:#fff;text-shadow:2px 2px 0 #000;margin-bottom:4px}
+  #bossbar .bar{height:12px;background:#301018;border:2px solid #000;border-radius:6px;overflow:hidden}
+  #bossfill{height:100%;background:linear-gradient(#ff7070,#d02030);width:100%}
+  #banner{position:absolute;left:50%;bottom:12%;transform:translateX(-50%);background:var(--paper);border:4px solid var(--line);border-radius:10px;padding:14px 20px;font-size:12px;line-height:1.6;max-width:90vw;text-align:center;opacity:0;transition:opacity .25s;box-shadow:0 4px 0 rgba(0,0,0,.35)}
+  #banner.show{opacity:1}
+
+  /* ---------- overlay screens ---------- */
+  .screen{position:fixed;inset:0;display:flex;padding:16px;background:rgba(10,16,24,.55);overflow:auto}
+  .box{margin:auto;background:var(--paper);border:4px solid var(--line);border-radius:14px;box-shadow:0 0 0 4px #c8d0e0 inset,0 8px 0 rgba(0,0,0,.35);padding:22px;max-width:980px;width:100%}
+  h1{font-size:clamp(18px,4vw,34px);margin:0 0 6px;text-align:center;color:#ffcb05;text-shadow:3px 3px 0 #2a75bb,-2px -2px 0 #2a75bb,2px -2px 0 #2a75bb,-2px 2px 0 #2a75bb;letter-spacing:1px}
+  h2{font-size:14px;margin:0 0 14px;text-align:center}
+  .sub{text-align:center;font-size:13px;color:#4a5468;margin:0 0 16px}
+  #starters{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+  .card{background:#fff;border:3px solid var(--line);border-radius:10px;padding:10px;cursor:pointer;transition:transform .08s,box-shadow .08s;display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}
+  .card:hover,.card:focus-visible{transform:translateY(-3px);box-shadow:0 5px 0 var(--line);outline:none}
+  .card img{width:96px;height:96px;image-rendering:pixelated}
+  .card .nm{font-size:11px}
+  .card small{font-size:12px;color:#4a5468}
+  .types{display:flex;gap:4px;justify-content:center}
+  .ty{font-size:9px;font-weight:800;color:#fff;padding:2px 6px;border-radius:999px;text-transform:uppercase;text-shadow:1px 1px 0 rgba(0,0,0,.4)}
+  .help{margin-top:16px;font-size:13px;color:#3a4256;line-height:1.55;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:4px 20px}
+  .help b{color:#000}
+  #choices{display:flex;flex-direction:column;gap:10px}
+  .choice{display:flex;gap:12px;align-items:center;background:#fff;border:3px solid var(--line);border-radius:10px;padding:10px 12px;cursor:pointer;text-align:left;font:inherit;color:inherit;transition:transform .08s}
+  .choice:hover,.choice:focus-visible{transform:translateX(4px);border-color:var(--accent);outline:none}
+  .choice .ic{flex:0 0 48px;height:48px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;font-weight:800;text-transform:uppercase;border:2px solid rgba(0,0,0,.3);overflow:hidden;background:#e8ecf0}
+  .choice .ic img{width:44px;height:44px;image-rendering:pixelated}
+  .choice .t{font-weight:800;font-size:15px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .choice .d{font-size:13px;color:#4a5468;margin-top:2px}
+  .tag{font-size:10px;font-weight:800;padding:2px 6px;border-radius:4px;background:#2a75bb;color:#fff}
+  .tag.new{background:#e3350d}.tag.evo{background:linear-gradient(90deg,#f8a800,#e3350d)}
+  .key{font-size:10px;color:#8a94a8;margin-left:auto;font-family:"Press Start 2P",monospace}
+  #levelup .box,#pause .box,#end .box{max-width:560px}
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-size:14px;margin:12px 0 18px}
+  .stats div{display:flex;justify-content:space-between;border-bottom:1px dashed #c0c8d4;padding:3px 0}
+  .btn{display:block;margin:0 auto;font-family:"Press Start 2P",monospace;font-size:12px;padding:12px 20px;background:var(--accent);color:#fff;border:3px solid #8a1c06;border-radius:8px;cursor:pointer;box-shadow:0 4px 0 #8a1c06}
+  .btn:active{transform:translateY(3px);box-shadow:0 1px 0 #8a1c06}
+  .center{text-align:center}
+  #score{position:absolute;right:12px;top:46px;font-size:9px;color:#ffe060;text-shadow:2px 2px 0 #000}
+  .menu{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:0 0 16px}
+  .btn2{font-family:"Press Start 2P",monospace;font-size:10px;padding:9px 12px;background:#2a75bb;color:#fff;border:3px solid #17457a;border-radius:8px;cursor:pointer;box-shadow:0 3px 0 #17457a}
+  .btn2:active{transform:translateY(2px);box-shadow:0 1px 0 #17457a}
+  .btn2.ghost{background:#fff;color:var(--ink);border-color:var(--line);box-shadow:0 3px 0 var(--line)}
+  .card .best{font-size:11px;color:#b07800;font-weight:700;min-height:14px}
+  #toasts{position:fixed;right:12px;top:70px;display:flex;flex-direction:column;gap:8px;z-index:20;pointer-events:none}
+  .toast{background:var(--paper);border:3px solid var(--line);border-radius:10px;padding:8px 12px;display:flex;gap:10px;align-items:center;box-shadow:0 4px 0 rgba(0,0,0,.3);animation:tin .35s ease-out;max-width:300px}
+  .toast b,.ach b{display:block;font-size:13px}
+  .toast small,.ach small{font-size:12px;color:#4a5468}
+  .toast em{display:block;font-style:normal;font-size:8px;color:#b07800;font-family:"Press Start 2P",monospace;margin-bottom:3px}
+  @keyframes tin{from{transform:translateX(120%)}to{transform:none}}
+  .medal{flex:0 0 34px;height:34px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#fff3a0,#f0b000 60%,#a06800);border:2px solid #805000;display:flex;align-items:center;justify-content:center;font-size:16px;color:#805000}
+  #achList{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;max-height:60vh;overflow:auto;padding:2px}
+  .ach{display:flex;gap:10px;align-items:center;background:#fff;border:2px solid var(--line);border-radius:8px;padding:8px}
+  .ach.locked{opacity:.55;filter:grayscale(1)}
+  #achScreen .box,#lbScreen .box{max-width:780px}
+  table.lb{width:100%;border-collapse:collapse;font-size:13px}
+  .lb th{font-size:8px;font-family:"Press Start 2P",monospace;text-align:left;padding:6px;border-bottom:3px solid var(--line)}
+  .lb td{padding:4px 6px;border-bottom:1px dashed #c0c8d4;white-space:nowrap}
+  .lb td img{width:36px;height:36px;image-rendering:pixelated;vertical-align:middle;margin:-6px 0}
+  .lb tr.me td{background:#fff6c8}
+  .lbwrap{max-height:56vh;overflow:auto}
+  .big{font-size:22px;color:#e3350d;margin:6px 0 4px}
+  .namerow,.vol{display:flex;gap:10px;justify-content:center;align-items:center;font-size:13px;margin:0 0 14px;flex-wrap:wrap}
+  .namerow input,select{font:inherit;padding:6px 8px;border:2px solid var(--line);border-radius:6px}
+  .namerow input{width:170px}
+  .vol input{width:110px;accent-color:#e3350d}
+  .row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+  .row .btn{margin:0}
+  #regions{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin:0 0 8px}
+  .rtab{font-family:"Press Start 2P",monospace;font-size:9px;padding:8px 10px;border:3px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);cursor:pointer}
+  .rtab.on{background:#ffcb05;box-shadow:0 3px 0 var(--line)}
+  .rtab:disabled{opacity:.45;cursor:not-allowed;background:#e4e8ee}
+  .rtab .st{color:#b07800}
+  #regionInfo{margin-bottom:12px;min-height:18px}
+  @media (max-width:600px){
+    #timer{font-size:14px;top:92px}
+    #bossbar{top:116px}
+    .hpbar{width:100px}
+    #loadout{top:auto;bottom:10px}
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud" class="hidden">
+  <div id="xpbar"><div id="xpfill"></div><span id="lvl" class="px">Lv 1</span></div>
+  <div id="status">
+    <img id="portrait" alt="">
+    <div>
+      <div id="pname" class="px"></div>
+      <div class="hpwrap"><b class="px">HP</b><div class="hpbar"><div id="hpfill"></div></div></div>
+      <div id="hptext" class="px"></div>
+    </div>
+  </div>
+  <div id="timer" class="px">00:00</div>
+  <div id="kills" class="px">KO 0</div>
+  <div id="score" class="px">0</div>
+  <div id="loadout"><div class="lrow" id="lmoves"></div><div class="lrow" id="litems"></div><div class="lrow" id="lallies"></div></div>
+  <div id="bossbar" class="hidden"><div id="bossname" class="px"></div><div class="bar"><div id="bossfill"></div></div></div>
+  <div id="banner" class="px"></div>
+</div>
+
+<div id="title" class="screen">
+  <div class="box">
+    <h1 class="px">POKéMON SURVIVORS</h1>
+    <p class="sub">Pick a region and a partner. Survive 15 minutes, then beat the region's legendary to unlock the next one.</p>
+    <div class="menu">
+      <button class="btn2" id="lbBtn">Leaderboard</button>
+      <button class="btn2" id="achBtn">Achievements</button>
+      <button class="btn2 ghost" id="sndBtn">Sound: On</button>
+    </div>
+    <div id="regions"></div>
+    <p class="sub" id="regionInfo"></p>
+    <div id="starters"></div>
+    <div class="help">
+      <div><b>Move:</b> WASD / arrow keys, or hold the mouse / touch the screen. Attacks fire on their own.</div>
+      <div><b>Type matchups matter:</b> super effective hits do 2× (or 4×), resisted hits do ½×. Enemies' attacks follow the chart too.</div>
+      <div><b>STAB:</b> moves that share your Pokémon's type do 1.5× damage.</div>
+      <div><b>Evolve:</b> you evolve at Lv 12 and Lv 28. Max a move to Lv 6 while holding its type item to unlock its evolved form.</div>
+      <div><b>Shiny Pokémon</b> drop Poké Balls. Grab one to catch it as an ally (up to 4).</div>
+      <div><b>Pause:</b> Esc or P. Pick level-up options with 1 / 2 / 3. <b>M</b> mutes sound.</div>
+    </div>
+  </div>
+</div>
+
+<div id="levelup" class="screen hidden">
+  <div class="box">
+    <h2 class="px" id="luTitle">Level up!</h2>
+    <div id="choices"></div>
+  </div>
+</div>
+
+<div id="pause" class="screen hidden">
+  <div class="box center">
+    <h2 class="px">Paused</h2>
+    <div class="stats" id="pauseStats"></div>
+    <div class="vol">
+      <label>Music <input type="range" id="volMusic" min="0" max="1" step="0.05"></label>
+      <label>Effects <input type="range" id="volSfx" min="0" max="1" step="0.05"></label>
+    </div>
+    <button class="btn" id="resumeBtn">Resume</button>
+    <p style="margin:14px 0 0"><a href="#" id="quitBtn" style="color:#4a5468;font-size:13px">Quit to title</a></p>
+  </div>
+</div>
+
+<div id="end" class="screen hidden">
+  <div class="box center">
+    <h2 class="px" id="endTitle"></h2>
+    <p class="sub" id="endSub"></p>
+    <div class="big px" id="endScore"></div>
+    <p class="sub" id="endRank"></p>
+    <div class="namerow"><label for="nameIn">Trainer name</label><input id="nameIn" maxlength="14" autocomplete="off"></div>
+    <div class="stats" id="endStats"></div>
+    <div class="row"><button class="btn" id="nextBtn">Next region</button><button class="btn" id="againBtn">Play again</button><button class="btn2" id="endLbBtn">Leaderboard</button></div>
+  </div>
+</div>
+
+<div id="achScreen" class="screen hidden">
+  <div class="box">
+    <h2 class="px" id="achTitle">Achievements</h2>
+    <div id="achList"></div>
+    <p class="center" style="margin:16px 0 0"><button class="btn" data-close>Back</button></p>
+  </div>
+</div>
+
+<div id="lbScreen" class="screen hidden">
+  <div class="box">
+    <h2 class="px">Leaderboard</h2>
+    <div class="vol"><label>Region <select id="lbFilter"></select></label></div>
+    <div class="lbwrap">
+      <table class="lb">
+        <thead><tr><th>#</th><th>Trainer</th><th>Region</th><th>Pokémon</th><th>Score</th><th>Time</th><th>Lv</th><th>KOs</th></tr></thead>
+        <tbody id="lbBody"></tbody>
+      </table>
+    </div>
+    <p class="center" style="margin:16px 0 0"><button class="btn" data-close>Back</button></p>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script>
+'use strict';
+/* =========================================================================
+   Assets: sprites come straight from the PokeAPI sprite repo.
+   If they can't load (offline), everything falls back to coloured shapes.
+   ========================================================================= */
+const SPR_BASE = 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/';
+const monURL = (id, shiny, back) => `${SPR_BASE}pokemon/${back ? 'back/' : ''}${shiny ? 'shiny/' : ''}${id}.png`;
+const itemURL = name => `${SPR_BASE}items/${name}.png`;
+const imgCache = {};
+function getImg(key, url) {
+  let e = imgCache[key];
+  if (!e) {
+    e = imgCache[key] = { img: new Image(), ok: false, white: null, failed: false };
+    e.img.onload = () => { e.ok = true; e.white = whiteVersion(e.img); };
+    e.img.onerror = () => { e.failed = true; };
+    e.img.src = url;
+  }
+  return e;
+}
+const monImg = (id, shiny, back) => getImg(`m${id}${shiny ? 's' : ''}${back ? 'b' : ''}`, monURL(id, shiny, back));
+const itemImg = name => getImg('i' + name, itemURL(name));
+function whiteVersion(img) {
+  const c = document.createElement('canvas');
+  c.width = img.width; c.height = img.height;
+  const x = c.getContext('2d');
+  x.drawImage(img, 0, 0);
+  x.globalCompositeOperation = 'source-in';
+  x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
+  return c;
+}
+
+/* =========================================================================
+   Types
+   ========================================================================= */
+const TC = {
+  normal:'#A8A77A', fire:'#EE8130', water:'#6390F0', electric:'#F7D02C', grass:'#7AC74C', ice:'#96D9D6',
+  fighting:'#C22E28', poison:'#A33EA1', ground:'#E2BF65', flying:'#A98FF3', psychic:'#F95587', bug:'#A6B91A',
+  rock:'#B6A136', ghost:'#735797', dragon:'#6F35FC', dark:'#705746', steel:'#B7B7CE', fairy:'#D685AD'
+};
+// [super effective, not very effective, no effect]  (no effect is softened to 0.25x so nothing is unkillable)
+const CHART_RAW = {
+  normal:   ['', 'rock steel', 'ghost'],
+  fire:     ['grass ice bug steel', 'fire water rock dragon', ''],
+  water:    ['fire ground rock', 'water grass dragon', ''],
+  electric: ['water flying', 'electric grass dragon', 'ground'],
+  grass:    ['water ground rock', 'fire grass poison flying bug dragon steel', ''],
+  ice:      ['grass ground flying dragon', 'fire water ice steel', ''],
+  fighting: ['normal ice rock dark steel', 'poison flying psychic bug fairy', 'ghost'],
+  poison:   ['grass fairy', 'poison ground rock ghost', 'steel'],
+  ground:   ['fire electric poison rock steel', 'grass bug', 'flying'],
+  flying:   ['grass fighting bug', 'electric rock steel', ''],
+  psychic:  ['fighting poison', 'psychic steel', 'dark'],
+  bug:      ['grass psychic dark', 'fire fighting poison flying ghost steel fairy', ''],
+  rock:     ['fire ice flying bug', 'fighting ground steel', ''],
+  ghost:    ['psychic ghost', 'dark', 'normal'],
+  dragon:   ['dragon', 'steel', 'fairy'],
+  dark:     ['psychic ghost', 'fighting dark fairy', ''],
+  steel:    ['ice rock fairy', 'fire water electric steel', ''],
+  fairy:    ['fighting dragon dark', 'fire poison steel', '']
+};
+const CHART = {};
+for (const k in CHART_RAW) {
+  const [s, w, i] = CHART_RAW[k].map(str => new Set(str.split(' ').filter(Boolean)));
+  CHART[k] = { s, w, i };
+}
+function eff(atk, defs) {
+  let m = 1; const c = CHART[atk];
+  for (const d of defs) { if (c.s.has(d)) m *= 2; else if (c.w.has(d)) m *= 0.5; else if (c.i.has(d)) m *= 0.25; }
+  return m;
+}
+const cap = s => s[0].toUpperCase() + s.slice(1);
+const typeBadge = t => `<span class="ty" style="background:${TC[t]}">${t}</span>`;
+
+/* =========================================================================
+   Starters (the player)
+   ========================================================================= */
+const EVO_LEVELS = [12, 28];
+const STARTERS = {
+  bulbasaur:  { stages:[[1,'Bulbasaur'],[2,'Ivysaur'],[3,'Venusaur']], types:[['grass','poison'],['grass','poison'],['grass','poison']], hp:120, spd:150, move:'razorLeaf' },
+  charmander: { stages:[[4,'Charmander'],[5,'Charmeleon'],[6,'Charizard']], types:[['fire'],['fire'],['fire','flying']], hp:100, spd:165, move:'ember' },
+  squirtle:   { stages:[[7,'Squirtle'],[8,'Wartortle'],[9,'Blastoise']], types:[['water'],['water'],['water']], hp:135, spd:145, move:'waterGun' },
+  pichu:      { stages:[[172,'Pichu'],[25,'Pikachu'],[26,'Raichu']], types:[['electric'],['electric'],['electric']], hp:85, spd:180, move:'thunderShock' },
+  gastly:     { stages:[[92,'Gastly'],[93,'Haunter'],[94,'Gengar']], types:[['ghost','poison'],['ghost','poison'],['ghost','poison']], hp:80, spd:170, move:'shadowBall' },
+  abra:       { stages:[[63,'Abra'],[64,'Kadabra'],[65,'Alakazam']], types:[['psychic'],['psychic'],['psychic']], hp:85, spd:160, move:'psychic' },
+  machop:     { stages:[[66,'Machop'],[67,'Machoke'],[68,'Machamp']], types:[['fighting'],['fighting'],['fighting']], hp:140, spd:145, move:'karateChop' },
+  geodude:    { stages:[[74,'Geodude'],[75,'Graveler'],[76,'Golem']], types:[['rock','ground'],['rock','ground'],['rock','ground']], hp:160, spd:130, move:'rockSlide' },
+};
+for (const k in STARTERS) STARTERS[k].region = 0;
+// Later regions: key, region, "id Name types" for each stage, hp, speed, starting move
+[
+  ['chikorita', 1, '152 Chikorita grass|153 Bayleef grass|154 Meganium grass', 125, 150, 'razorLeaf'],
+  ['cyndaquil', 1, '155 Cyndaquil fire|156 Quilava fire|157 Typhlosion fire', 100, 165, 'ember'],
+  ['totodile',  1, '158 Totodile water|159 Croconaw water|160 Feraligatr water', 135, 145, 'waterGun'],
+  ['larvitar',  1, '246 Larvitar rock/ground|247 Pupitar rock/ground|248 Tyranitar rock/dark', 150, 135, 'rockSlide'],
+  ['treecko',   2, '252 Treecko grass|253 Grovyle grass|254 Sceptile grass', 110, 170, 'razorLeaf'],
+  ['torchic',   2, '255 Torchic fire|256 Combusken fire/fighting|257 Blaziken fire/fighting', 100, 165, 'ember'],
+  ['mudkip',    2, '258 Mudkip water|259 Marshtomp water/ground|260 Swampert water/ground', 140, 140, 'waterGun'],
+  ['ralts',     2, '280 Ralts psychic/fairy|281 Kirlia psychic/fairy|282 Gardevoir psychic/fairy', 80, 160, 'psychic'],
+  ['turtwig',   3, '387 Turtwig grass|388 Grotle grass|389 Torterra grass/ground', 140, 135, 'razorLeaf'],
+  ['chimchar',  3, '390 Chimchar fire|391 Monferno fire/fighting|392 Infernape fire/fighting', 95, 175, 'ember'],
+  ['piplup',    3, '393 Piplup water|394 Prinplup water|395 Empoleon water/steel', 125, 150, 'waterGun'],
+  ['gible',     3, '443 Gible dragon/ground|444 Gabite dragon/ground|445 Garchomp dragon/ground', 130, 160, 'dragonPulse'],
+  ['snivy',     4, '495 Snivy grass|496 Servine grass|497 Serperior grass', 115, 165, 'razorLeaf'],
+  ['tepig',     4, '498 Tepig fire|499 Pignite fire/fighting|500 Emboar fire/fighting', 130, 145, 'ember'],
+  ['oshawott',  4, '501 Oshawott water|502 Dewott water|503 Samurott water', 125, 150, 'waterGun'],
+  ['deino',     4, '633 Deino dark/dragon|634 Zweilous dark/dragon|635 Hydreigon dark/dragon', 120, 150, 'darkPulse'],
+  ['chespin',   5, '650 Chespin grass|651 Quilladin grass|652 Chesnaught grass/fighting', 135, 140, 'razorLeaf'],
+  ['fennekin',  5, '653 Fennekin fire|654 Braixen fire|655 Delphox fire/psychic', 90, 165, 'ember'],
+  ['froakie',   5, '656 Froakie water|657 Frogadier water|658 Greninja water/dark', 100, 180, 'waterGun'],
+  ['flabebe',   5, '669 Flabébé fairy|670 Floette fairy|671 Florges fairy', 85, 155, 'dazzlingGleam'],
+  ['rowlet',    6, '722 Rowlet grass/flying|723 Dartrix grass/flying|724 Decidueye grass/ghost', 115, 155, 'razorLeaf'],
+  ['litten',    6, '725 Litten fire|726 Torracat fire|727 Incineroar fire/dark', 110, 160, 'ember'],
+  ['popplio',   6, '728 Popplio water|729 Brionne water|730 Primarina water/fairy', 120, 145, 'waterGun'],
+  ['grubbin',   6, '736 Grubbin bug|737 Charjabug bug/electric|738 Vikavolt bug/electric', 110, 145, 'pinMissile'],
+  ['grookey',   7, '810 Grookey grass|811 Thwackey grass|812 Rillaboom grass', 120, 155, 'razorLeaf'],
+  ['scorbunny', 7, '813 Scorbunny fire|814 Raboot fire|815 Cinderace fire', 100, 180, 'ember'],
+  ['sobble',    7, '816 Sobble water|817 Drizzile water|818 Inteleon water', 95, 170, 'waterGun'],
+  ['dreepy',    7, '885 Dreepy dragon/ghost|886 Drakloak dragon/ghost|887 Dragapult dragon/ghost', 95, 180, 'dragonPulse'],
+  ['sprigatito',8, '906 Sprigatito grass|907 Floragato grass|908 Meowscarada grass/dark', 105, 175, 'razorLeaf'],
+  ['fuecoco',   8, '909 Fuecoco fire|910 Crocalor fire|911 Skeledirge fire/ghost', 135, 140, 'ember'],
+  ['quaxly',    8, '912 Quaxly water|913 Quaxwell water|914 Quaquaval water/fighting', 115, 160, 'waterGun'],
+  ['pawmi',     8, '921 Pawmi electric|922 Pawmo electric/fighting|923 Pawmot electric/fighting', 90, 180, 'thunderShock'],
+].forEach(([key, region, stages, hp, spd, move]) => {
+  const st = stages.split('|').map(s => s.split(' '));
+  STARTERS[key] = { region, stages:st.map(([id, name]) => [+id, name]), types:st.map(s => s[2].split('/')), hp, spd, move };
+});
+
+/* =========================================================================
+   Regions. Each one is a "level": its own starters, wild Pokémon, bosses,
+   look and difficulty. Beating a region's final boss unlocks the next one.
+   Wild Pokémon are "id Name types"; their stats come from the wave tier
+   they appear in, nudged by type (rock/steel/ground are tanky and slow,
+   flying/electric/dark are fast and frail).
+   ========================================================================= */
+// tier stats: [hp, speed, contact dmg, radius, xp]
+const TIERS = [[8,70,5,12,1],[9,85,5,12,1],[22,65,7,13,2],[33,80,9,14,3],[45,85,10,15,4],[80,80,13,16,5],[120,80,15,17,6],[150,85,17,18,8],[220,90,21,20,11]];
+// [from minute, to minute] for each wave tier
+const WAVE_WINDOWS = [[0,2],[1,4],[2,5],[3.5,7],[5,9],[6.5,10],[8.5,12.5],[10,14],[12,99]];
+// boss slots: spawn time + base stats
+const BOSS_SLOTS = [
+  { t:180, hp:1800,  spd:60, dmg:22, r:46, xp:150 },
+  { t:360, hp:5000,  spd:50, dmg:30, r:50, xp:300 },
+  { t:540, hp:9000,  spd:75, dmg:32, r:50, xp:500 },
+  { t:720, hp:15000, spd:85, dmg:36, r:46, xp:800 },
+  { t:900, hp:25000, spd:95, dmg:40, r:44, xp:0, final:true },
+];
+const SWARMS = [150, 330, 510, 690, 870];
+const TANKY = ['rock', 'steel', 'ground'], QUICK = ['flying', 'electric', 'dark'];
+
+function parseMon(str) { const [id, name, t] = str.trim().split(' '); return { id:+id, name, types:t.split('/') }; }
+function makeSpecies(str, tier) {
+  const m = parseMon(str);
+  let [hp, spd, dmg, r, xp] = TIERS[tier];
+  if (m.types.some(t => TANKY.includes(t))) { hp *= 1.5; spd *= .7; }
+  else if (m.types.some(t => QUICK.includes(t))) { hp *= .85; spd *= 1.25; }
+  return Object.assign(m, { hp, spd, dmg, r, xp });
+}
+
+const REGIONS = [
+  { key:'kanto', name:'Kanto',
+    theme:{ base:'#88c860', alt:'#80c058', tuft:'#5a9a40', tall:'#58a040', tallDark:'#3f8030', fl:['#f8f8f8', '#f86868'] },
+    waves:['19 Rattata normal|16 Pidgey normal/flying|10 Caterpie bug',
+           '13 Weedle bug/poison|41 Zubat poison/flying|21 Spearow normal/flying',
+           '23 Ekans poison|43 Oddish grass/poison|74 Geodude rock/ground',
+           '66 Machop fighting|92 Gastly ghost/poison|81 Magnemite electric/steel|77 Ponyta fire|35 Clefairy fairy',
+           '54 Psyduck water|58 Growlithe fire|72 Tentacool water/poison|198 Murkrow dark/flying|20 Raticate normal',
+           '42 Golbat poison/flying|75 Graveler rock/ground|93 Haunter ghost/poison|64 Kadabra psychic',
+           '67 Machoke fighting|24 Arbok poison|28 Sandslash ground|147 Dratini dragon',
+           '125 Electabuzz electric|124 Jynx ice/psychic|126 Magmar fire|123 Scyther bug/flying',
+           '111 Rhyhorn ground/rock|57 Primeape fighting|34 Nidoking poison/ground|59 Arcanine fire|215 Sneasel dark/ice'],
+    bosses:'95 Onix rock/ground|143 Snorlax normal|130 Gyarados water/flying|149 Dragonite dragon/flying|150 Mewtwo psychic' },
+  { key:'johto', name:'Johto',
+    theme:{ base:'#a8c060', alt:'#9eb858', tuft:'#7a8a40', tall:'#c88a3a', tallDark:'#9a5a20', fl:['#f8d8a0', '#e86040'] },
+    waves:['161 Sentret normal|163 Hoothoot normal/flying|165 Ledyba bug/flying|167 Spinarak bug/poison',
+           '187 Hoppip grass/flying|194 Wooper water/ground|179 Mareep electric|191 Sunkern grass',
+           '183 Marill water/fairy|204 Pineco bug|209 Snubbull fairy|216 Teddiursa normal',
+           '162 Furret normal|177 Natu psychic/flying|198 Murkrow dark/flying|200 Misdreavus ghost|218 Slugma fire',
+           '180 Flaaffy electric|220 Swinub ice/ground|228 Houndour dark/fire|231 Phanpy ground|207 Gligar ground/flying',
+           '164 Noctowl normal/flying|168 Ariados bug/poison|203 Girafarig normal/psychic|215 Sneasel dark/ice',
+           '217 Ursaring normal|232 Donphan ground|229 Houndoom dark/fire|227 Skarmory steel/flying',
+           '214 Heracross bug/fighting|212 Scizor bug/steel|181 Ampharos electric|230 Kingdra water/dragon',
+           '241 Miltank normal|242 Blissey normal|237 Hitmontop fighting|205 Forretress bug/steel|197 Umbreon dark'],
+    bosses:'185 Sudowoodo rock|208 Steelix steel/ground|248 Tyranitar rock/dark|249 Lugia psychic/flying|250 Ho-Oh fire/flying' },
+  { key:'hoenn', name:'Hoenn',
+    theme:{ base:'#70c870', alt:'#68c068', tuft:'#409850', tall:'#38a050', tallDark:'#207838', fl:['#ff80c0', '#ffe060'] },
+    waves:['261 Poochyena dark|263 Zigzagoon normal|265 Wurmple bug|276 Taillow normal/flying',
+           '270 Lotad water/grass|273 Seedot grass|278 Wingull water/flying|285 Shroomish grass',
+           '293 Whismur normal|296 Makuhita fighting|300 Skitty normal|304 Aron steel/rock',
+           '309 Electrike electric|318 Carvanha water/dark|322 Numel fire/ground|325 Spoink psychic|328 Trapinch ground',
+           '333 Swablu normal/flying|339 Barboach water/ground|341 Corphish water|343 Baltoy ground/psychic|353 Shuppet ghost',
+           '297 Hariyama fighting|310 Manectric electric|319 Sharpedo water/dark|335 Zangoose normal|336 Seviper poison',
+           '305 Lairon steel/rock|330 Flygon ground/dragon|334 Altaria dragon/flying|354 Banette ghost',
+           '357 Tropius grass/flying|359 Absol dark|362 Glalie ice|365 Walrein ice/water',
+           '289 Slaking normal|350 Milotic water|372 Shelgon dragon|375 Metang steel/psychic|344 Claydol ground/psychic'],
+    bosses:'321 Wailord water|306 Aggron steel/rock|373 Salamence dragon/flying|376 Metagross steel/psychic|384 Rayquaza dragon/flying' },
+  { key:'sinnoh', name:'Sinnoh',
+    theme:{ base:'#e4eef6', alt:'#d8e6f2', tuft:'#a8bcd0', tall:'#8fb0a0', tallDark:'#668c7c', fl:['#a0c8f8', '#ffffff'] },
+    waves:['396 Starly normal/flying|399 Bidoof normal|401 Kricketot bug|403 Shinx electric',
+           '412 Burmy bug|415 Combee bug/flying|418 Buizel water|420 Cherubi grass',
+           '422 Shellos water|425 Drifloon ghost/flying|427 Buneary normal|431 Glameow normal',
+           '397 Staravia normal/flying|404 Luxio electric|433 Chingling psychic|434 Stunky poison/dark|436 Bronzor steel/psychic',
+           '441 Chatot normal/flying|449 Hippopotas ground|451 Skorupi poison/bug|453 Croagunk poison/fighting',
+           '400 Bibarel normal/water|419 Floatzel water|426 Drifblim ghost/flying|435 Skuntank poison/dark',
+           '405 Luxray electric|437 Bronzong steel/psychic|450 Hippowdon ground|452 Drapion poison/dark',
+           '448 Lucario fighting/steel|459 Snover grass/ice|461 Weavile dark/ice|466 Electivire electric|467 Magmortar fire',
+           '460 Abomasnow grass/ice|464 Rhyperior ground/rock|473 Mamoswine ice/ground|477 Dusknoir ghost|475 Gallade psychic/fighting'],
+    bosses:'411 Bastiodon rock/steel|445 Garchomp dragon/ground|483 Dialga steel/dragon|484 Palkia water/dragon|487 Giratina ghost/dragon' },
+  { key:'unova', name:'Unova',
+    theme:{ base:'#9cb890', alt:'#94b088', tuft:'#6a8a68', tall:'#5a8058', tallDark:'#3e6040', fl:['#f8f8f8', '#f8c838'] },
+    waves:['504 Patrat normal|506 Lillipup normal|509 Purrloin dark|519 Pidove normal/flying',
+           '511 Pansage grass|513 Pansear fire|515 Panpour water|524 Roggenrola rock|527 Woobat psychic/flying',
+           '532 Timburr fighting|535 Tympole water|540 Sewaddle bug/grass|543 Venipede bug/poison',
+           '546 Cottonee grass/fairy|551 Sandile ground/dark|554 Darumaka fire|562 Yamask ghost|570 Zorua dark',
+           '572 Minccino normal|577 Solosis psychic|580 Ducklett water/flying|585 Deerling normal/grass|587 Emolga electric/flying',
+           '525 Boldore rock|552 Krokorok ground/dark|590 Foongus grass/poison|595 Joltik bug/electric|599 Klink steel',
+           '602 Tynamo electric|607 Litwick ghost/fire|610 Axew dragon|613 Cubchoo ice|619 Mienfoo fighting',
+           '621 Druddigon dragon|624 Pawniard dark/steel|627 Rufflet normal/flying|631 Heatmor fire',
+           '553 Krookodile ground/dark|571 Zoroark dark|609 Chandelure ghost/fire|628 Braviary normal/flying|637 Volcarona bug/fire'],
+    bosses:'534 Conkeldurr fighting|612 Haxorus dragon|643 Reshiram dragon/fire|644 Zekrom dragon/electric|646 Kyurem dragon/ice' },
+  { key:'kalos', name:'Kalos',
+    theme:{ base:'#a8c890', alt:'#a0c088', tuft:'#789a68', tall:'#9a80c0', tallDark:'#6a5098', fl:['#f8b8e0', '#f8f8f8'] },
+    waves:['659 Bunnelby normal|661 Fletchling normal/flying|664 Scatterbug bug|667 Litleo fire/normal',
+           '672 Skiddo grass|674 Pancham fighting|677 Espurr psychic|669 Flabébé fairy',
+           '679 Honedge steel/ghost|682 Spritzee fairy|684 Swirlix fairy|686 Inkay dark/psychic',
+           '688 Binacle rock/water|690 Skrelp poison/water|692 Clauncher water|694 Helioptile electric/normal|662 Fletchinder fire/flying',
+           '696 Tyrunt rock/dragon|698 Amaura rock/ice|701 Hawlucha fighting/flying|702 Dedenne electric/fairy|703 Carbink rock/fairy',
+           '704 Goomy dragon|707 Klefki steel/fairy|708 Phantump ghost/grass|710 Pumpkaboo ghost/grass|712 Bergmite ice',
+           '668 Pyroar fire/normal|675 Pangoro fighting/dark|680 Doublade steel/ghost|714 Noibat flying/dragon',
+           '689 Barbaracle rock/water|691 Dragalge poison/dragon|693 Clawitzer water|709 Trevenant ghost/grass',
+           '713 Avalugg ice|715 Noivern flying/dragon|699 Aurorus rock/ice|681 Aegislash steel/ghost|663 Talonflame fire/flying'],
+    bosses:'697 Tyrantrum rock/dragon|706 Goodra dragon|716 Xerneas fairy|717 Yveltal dark/flying|718 Zygarde dragon/ground' },
+  { key:'alola', name:'Alola',
+    theme:{ base:'#ecd8a0', alt:'#e4d094', tuft:'#c0a868', tall:'#60b860', tallDark:'#3a9040', fl:['#ff6080', '#ffe060'] },
+    waves:['731 Pikipek normal/flying|734 Yungoos normal|736 Grubbin bug|741 Oricorio fire/flying',
+           '742 Cutiefly bug/fairy|744 Rockruff rock|747 Mareanie poison/water|749 Mudbray ground',
+           '751 Dewpider water/bug|753 Fomantis grass|755 Morelull grass/fairy|757 Salandit poison/fire',
+           '759 Stufful normal/fighting|761 Bounsweet grass|764 Comfey fairy|765 Oranguru normal/psychic|766 Passimian fighting',
+           '767 Wimpod bug/water|769 Sandygast ghost/ground|732 Trumbeak normal/flying|737 Charjabug bug/electric',
+           '771 Pyukumuku water|774 Minior rock/flying|775 Komala normal|776 Turtonator fire/dragon|777 Togedemaru electric/steel',
+           '778 Mimikyu ghost/fairy|779 Bruxish water/psychic|780 Drampa normal/dragon|782 Jangmo-o dragon',
+           '745 Lycanroc rock|752 Araquanid water/bug|758 Salazzle poison/fire|760 Bewear normal/fighting|783 Hakamo-o dragon/fighting',
+           '768 Golisopod bug/water|770 Palossand ghost/ground|733 Toucannon normal/flying|781 Dhelmise ghost/grass'],
+    bosses:'750 Mudsdale ground|784 Kommo-o dragon/fighting|791 Solgaleo psychic/steel|792 Lunala psychic/ghost|800 Necrozma psychic' },
+  { key:'galar', name:'Galar',
+    theme:{ base:'#78a858', alt:'#70a050', tuft:'#4f7a38', tall:'#5a8a40', tallDark:'#3a6028', fl:['#d0a0f0', '#f8f8f8'] },
+    waves:['819 Skwovet normal|821 Rookidee flying|824 Blipbug bug|827 Nickit dark',
+           '829 Gossifleur grass|831 Wooloo normal|833 Chewtle water|835 Yamper electric',
+           '837 Rolycoly rock|840 Applin grass/dragon|843 Silicobra ground|845 Cramorant flying/water',
+           '846 Arrokuda water|848 Toxel electric/poison|850 Sizzlipede fire/bug|852 Clobbopus fighting|854 Sinistea ghost',
+           '856 Hatenna psychic|859 Impidimp dark/fairy|868 Milcery fairy|870 Falinks fighting|822 Corvisquire flying',
+           '871 Pincurchin electric|872 Snom ice/bug|874 Stonjourner rock|875 Eiscue ice|877 Morpeko electric/dark',
+           '878 Cufant steel|838 Carkol rock/fire|844 Sandaconda ground|862 Obstagoon dark/normal',
+           '849 Toxtricity electric/poison|851 Centiskorch fire/bug|857 Hattrem psychic|861 Grimmsnarl dark/fairy|823 Corviknight flying/steel',
+           '879 Copperajah steel|858 Hatterene psychic/fairy|834 Drednaw water/rock|886 Drakloak dragon/ghost'],
+    bosses:'839 Coalossal rock/fire|884 Duraludon steel/dragon|889 Zamazenta fighting|888 Zacian fairy|890 Eternatus poison/dragon' },
+  { key:'paldea', name:'Paldea',
+    theme:{ base:'#c8c870', alt:'#c0c068', tuft:'#909a48', tall:'#a0a840', tallDark:'#707820', fl:['#f8f8f8', '#f08040'] },
+    waves:['915 Lechonk normal|917 Tarountula bug|919 Nymble bug|940 Wattrel electric/flying',
+           '924 Tandemaus normal|926 Fidough fairy|928 Smoliv grass/normal|932 Nacli rock',
+           '935 Charcadet fire|938 Tadbulb electric|942 Maschiff dark|944 Shroodle poison/normal',
+           '946 Bramblin grass/ghost|948 Toedscool ground/grass|950 Klawf rock|951 Capsakid grass|953 Rellor bug',
+           '955 Flittle psychic|957 Tinkatink fairy/steel|960 Wiglett water|962 Bombirdier flying/dark|963 Finizen water',
+           '965 Varoom steel/poison|967 Cyclizar dragon/normal|968 Orthworm steel|969 Glimmet rock/poison|971 Greavard ghost',
+           '973 Flamigo flying/fighting|974 Cetoddle ice|976 Veluza water/psychic|977 Dondozo water|978 Tatsugiri dragon/water',
+           '943 Mabosstiff dark|956 Espathra psychic|959 Tinkaton fairy/steel|972 Houndstone ghost|966 Revavroom steel/poison',
+           '975 Cetitan ice|979 Annihilape fighting/ghost|983 Kingambit dark/steel|997 Arctibax dragon/ice|980 Clodsire poison/ground'],
+    bosses:'934 Garganacl rock|998 Baxcalibur dragon/ice|1007 Koraidon fighting/dragon|1008 Miraidon electric/dragon|1024 Terapagos normal' },
+];
+REGIONS.forEach((R, i) => {
+  R.index = i;
+  // each new region is tougher: beefier, harder-hitting wild Pokémon that give a bit more XP
+  R.hpMul = 1 + .3*i; R.dmgMul = 1 + .15*i; R.xpMul = 1 + .2*i; R.crowd = 1 + .06*i; R.scoreMul = 1 + .5*i;
+  R.waves = R.waves.map((s, tier) => [...WAVE_WINDOWS[tier], s.split('|').map(m => makeSpecies(m, tier))]);
+  R.bosses = R.bosses.split('|').map((s, i) => Object.assign(parseMon(s), BOSS_SLOTS[i]));
+  R.starters = Object.keys(STARTERS).filter(k => STARTERS[k].region === i);
+  R.finalBoss = R.bosses[R.bosses.length - 1].name;
+});
+
+/* =========================================================================
+   Moves (weapons). stats(level, evolved) -> numbers; fire(move, stats) acts.
+   ========================================================================= */
+const pick = (arr, l) => arr[Math.min(arr.length - 1, l - 1)];
+const MOVES = {
+  ember: {
+    name:'Ember', type:'fire', desc:'Fires embers at the nearest foes.',
+    evo:{ item:'charcoal', name:'Fire Blast', desc:'Huge fireballs that explode on impact.' },
+    stats:(l, e) => ({ dmg:(10 + 4*(l-1)) * (e?2:1), count:e?5:pick([1,1,2,2,3,3],l), cd:Math.max(.6, 1.2 - .08*(l-1)), pierce:l>=4?2:1, blast:e?60:0 }),
+    fire(m, s) {
+      const ts = enemiesByDist(P.x, P.y, 650);
+      for (let i = 0; i < s.count; i++) {
+        let a;
+        if (ts.length) { const t = ts[i % ts.length]; a = Math.atan2(t.y - P.y, t.x - P.x) + (i >= ts.length ? (Math.random()-.5)*.5 : 0); }
+        else a = Math.atan2(P.fy, P.fx) + (Math.random()-.5)*.6;
+        shoot({ vx:Math.cos(a)*420, vy:Math.sin(a)*420, r:m.evo?10:6, dmg:s.dmg, type:'fire', pierce:s.pierce, life:1.6, kind:'fire', blast:s.blast });
+      }
+    }
+  },
+  waterGun: {
+    name:'Water Gun', type:'water', desc:'Piercing water blasts at the closest foe. Knocks foes back.',
+    evo:{ item:'mysticWater', name:'Hydro Pump', desc:'Massive torrents that pierce everything.' },
+    stats:(l, e) => ({ dmg:(10 + 4*(l-1)) * (e?2.2:1), count:e?5:pick([1,1,2,2,3,3],l), cd:.9 - .05*(l-1), pierce:e?999:2+l, kb:e?320:160, size:e?15:7 }),
+    fire(m, s) {
+      const base = aimAngle(500);
+      for (let i = 0; i < s.count; i++) {
+        const a = base + (i - (s.count-1)/2) * .18;
+        shoot({ vx:Math.cos(a)*540, vy:Math.sin(a)*540, r:s.size, dmg:s.dmg, type:'water', pierce:s.pierce, life:1, kind:'water', kb:s.kb });
+      }
+    }
+  },
+  razorLeaf: {
+    name:'Razor Leaf', type:'grass', desc:'Sharp leaves orbit around you.', passive:true,
+    evo:{ item:'miracleSeed', name:'Leaf Storm', desc:'A wide, fast storm of leaves.' },
+    stats:(l, e) => ({ dmg:(7 + 3*(l-1)) * (e?2:1), count:e?8:pick([3,3,4,4,5,5],l), radius:e?120:80 + 5*(l-1), rot:e?4.5:3 + .2*l }),
+    tick(m, s, dt) {
+      m.ang = (m.ang || 0) + s.rot * dt;
+      m.leaves = [];
+      for (let i = 0; i < s.count; i++) {
+        const a = m.ang + i * Math.PI * 2 / s.count;
+        const x = P.x + Math.cos(a) * s.radius, y = P.y + Math.sin(a) * s.radius;
+        m.leaves.push({ x, y, a });
+        hitArea(x, y, 12, s.dmg, 'grass', { key:'rl' + i, cd:.45, kbFrom:[P.x, P.y, 60] });
+      }
+    }
+  },
+  thunderShock: {
+    name:'Thunder Shock', type:'electric', desc:'Lightning strikes random nearby foes.',
+    evo:{ item:'magnet', name:'Thunder', desc:'Many huge lightning strikes.' },
+    stats:(l, e) => ({ dmg:(15 + 6*(l-1)) * (e?2:1), count:e?7:pick([1,2,2,3,3,4],l), cd:1.7 - .1*(l-1), radius:e?70:30 + 3*l }),
+    fire(m, s) {
+      const ts = enemiesByDist(P.x, P.y, 480).slice(0, 40);
+      shuffle(ts);
+      for (let i = 0; i < Math.min(s.count, ts.length); i++) {
+        const t = ts[i];
+        hitArea(t.x, t.y, s.radius, s.dmg, 'electric');
+        addFx({ kind:'bolt', x:t.x, y:t.y, r:s.radius, life:.25, max:.25, pts:boltPts(t.x, t.y) });
+      }
+    }
+  },
+  shadowBall: {
+    name:'Shadow Ball', type:'ghost', desc:'Slow orbs of shadow drift through foes.',
+    evo:{ item:'spellTag', name:'Phantom Force', desc:'Giant shadow orbs that linger.' },
+    stats:(l, e) => ({ dmg:(18 + 6*(l-1)) * (e?1.8:1), count:e?4:pick([1,1,1,2,2,3],l), cd:2.2 - .1*(l-1), radius:e?30:12 + 2*l, dur:2.2 + .15*l + (e?1:0) }),
+    fire(m, s) {
+      const ts = enemiesByDist(P.x, P.y, 600).slice(0, 10);
+      for (let i = 0; i < s.count; i++) {
+        let a = Math.random()*Math.PI*2;
+        if (ts.length) { const t = ts[(Math.random()*ts.length)|0]; a = Math.atan2(t.y - P.y, t.x - P.x); }
+        a += (Math.random()-.5) * .4;
+        shoot({ vx:Math.cos(a)*170, vy:Math.sin(a)*170, r:s.radius, dmg:s.dmg, type:'ghost', pierce:999, hitCd:.4, life:s.dur, kind:'shadow' });
+      }
+    }
+  },
+  psychic: {
+    name:'Psychic', type:'psychic', desc:'An aura that damages and slows nearby foes.', passive:true,
+    evo:{ item:'twistedSpoon', name:'Psystrike', desc:'A huge aura that crushes and slows foes.' },
+    stats:(l, e) => ({ dmg:(6 + 2.5*(l-1)) * (e?2:1), radius:e?160:80 + 10*(l-1), slow:e?.5:.3 }),
+    tick(m, s, dt) {
+      m.radius = s.radius;
+      m.t -= dt;
+      if (m.t > 0) return;
+      m.t = .5 * G.stat.cd;
+      hitArea(P.x, P.y, s.radius, s.dmg, 'psychic', { onHit:e => { e.slowT = .7; e.slowF = s.slow; } });
+    }
+  },
+  rockSlide: {
+    name:'Rock Slide', type:'rock', desc:'Boulders crash down on groups of foes.',
+    evo:{ item:'hardStone', name:'Stone Edge', desc:'A barrage of massive boulders.' },
+    stats:(l, e) => ({ dmg:(20 + 7*(l-1)) * (e?2:1), count:e?11:pick([2,3,4,5,6,7],l), cd:2.4 - .1*(l-1), radius:e?60:38 + 2*l }),
+    fire(m, s) {
+      const ts = enemiesByDist(P.x, P.y, 420);
+      for (let i = 0; i < s.count; i++) {
+        let x, y;
+        if (ts.length) { const t = ts[(Math.random()*Math.min(ts.length, 25))|0]; x = t.x + (Math.random()-.5)*30; y = t.y + (Math.random()-.5)*30; }
+        else { const a = Math.random()*Math.PI*2, d = 80 + Math.random()*200; x = P.x + Math.cos(a)*d; y = P.y + Math.sin(a)*d; }
+        G.zones.push({ kind:'rock', x, y, r:s.radius, delay:.5 + i*.06, max:.5 + i*.06, dmg:s.dmg, type:'rock' });
+      }
+    }
+  },
+  iceBeam: {
+    name:'Ice Beam', type:'ice', desc:'A freezing beam that pierces everything in a line.',
+    evo:{ item:'neverMeltIce', name:'Blizzard', desc:'Freezing beams in every direction.' },
+    stats:(l, e) => ({ dmg:(14 + 5*(l-1)) * (e?1.8:1), count:e?8:pick([1,1,2,2,2,3],l), cd:2.6 - .12*(l-1), width:e?28:12 + 2*l, freeze:e?1.5:.6 + .1*l }),
+    fire(m, s) {
+      let base;
+      if (m.evo) base = Math.random()*Math.PI*2;
+      else { const t = nearestEnemy(P.x, P.y, 700); base = t ? Math.atan2(t.y - P.y, t.x - P.x) : Math.atan2(P.fy, P.fx); }
+      for (let i = 0; i < s.count; i++) {
+        const a = m.evo ? base + i * Math.PI*2 / s.count : base + (i - (s.count-1)/2) * .35;
+        beam(P.x, P.y, a, 520, s.width, s.dmg, 'ice', e => { e.freeze = Math.max(e.freeze, s.freeze); });
+      }
+    }
+  },
+  gust: {
+    name:'Gust', type:'flying', desc:'Whirlwinds bounce around the screen.',
+    evo:{ item:'sharpBeak', name:'Hurricane', desc:'Huge, long-lasting tornadoes.' },
+    stats:(l, e) => ({ dmg:(8 + 3*(l-1)) * (e?2:1), count:e?5:pick([1,1,2,2,3,3],l), cd:1.9 - .08*(l-1), radius:e?28:14 + l, dur:3 + .2*l + (e?2:0) }),
+    fire(m, s) {
+      for (let i = 0; i < s.count; i++) {
+        const a = Math.random()*Math.PI*2;
+        shoot({ vx:Math.cos(a)*250, vy:Math.sin(a)*250, r:s.radius, dmg:s.dmg, type:'flying', pierce:999, hitCd:.5, life:s.dur, kind:'gust', kb:120, bounce:true });
+      }
+    }
+  },
+  earthquake: {
+    name:'Earthquake', type:'ground', desc:'A shockwave hits every foe around you.',
+    evo:{ item:'softSand', name:'Precipice Blades', desc:'An enormous, devastating shockwave.' },
+    stats:(l, e) => ({ dmg:(25 + 8*(l-1)) * (e?2:1), cd:3.6 - .2*(l-1), radius:e?330:140 + 18*(l-1) }),
+    fire(m, s) {
+      G.zones.push({ kind:'quake', x:P.x, y:P.y, r:0, maxR:s.radius, life:.45, max:.45, dmg:s.dmg, type:'ground', hit:new Set() });
+      G.shake = Math.max(G.shake, 8);
+    }
+  },
+  karateChop: {
+    name:'Karate Chop', type:'fighting', desc:'A wide chop toward the closest foe.',
+    evo:{ item:'blackBelt', name:'Close Combat', desc:'Brutal strikes in all four directions.' },
+    stats:(l, e) => ({ dmg:(14 + 6*(l-1)) * (e?2:1), cd:1.25 - .06*(l-1), radius:85 + 6*l + (e?30:0), dirs:e?4:(l>=3?2:1) }),
+    fire(m, s) {
+      const base = aimAngle(s.radius + 60);
+      const offs = s.dirs === 4 ? [0, Math.PI/2, Math.PI, -Math.PI/2] : s.dirs === 2 ? [0, Math.PI] : [0];
+      for (const o of offs) {
+        const a = base + o;
+        hitArea(P.x, P.y, s.radius, s.dmg, 'fighting', { arc:[a, .95], kbFrom:[P.x, P.y, 180] });
+        addFx({ kind:'arc', x:P.x, y:P.y, a, r:s.radius, life:.18, max:.18 });
+      }
+    }
+  },
+  sludgeBomb: {
+    name:'Sludge Bomb', type:'poison', desc:'Lobs sludge that leaves a toxic puddle.',
+    evo:{ item:'poisonBarb', name:'Gunk Shot', desc:'Huge, potent puddles of toxic gunk.' },
+    stats:(l, e) => ({ dmg:(5 + 2*(l-1)) * (e?2:1), count:e?5:pick([1,1,2,2,3,3],l), cd:2.5 - .1*(l-1), radius:e?65:38 + 5*(l-1), dur:3 + (e?1:0) }),
+    fire(m, s) {
+      const ts = enemiesByDist(P.x, P.y, 420);
+      for (let i = 0; i < s.count; i++) {
+        let x, y;
+        if (ts.length) { const t = ts[(Math.random()*Math.min(ts.length, 20))|0]; x = t.x; y = t.y; }
+        else { const a = Math.random()*Math.PI*2, d = 80 + Math.random()*160; x = P.x + Math.cos(a)*d; y = P.y + Math.sin(a)*d; }
+        G.zones.push({ kind:'lob', sx:P.x, sy:P.y, x, y, t:0, T:.55, r:s.radius, dur:s.dur, dmg:s.dmg, type:'poison' });
+      }
+    }
+  },
+  pinMissile: {
+    name:'Pin Missile', type:'bug', desc:'A rapid volley of needles at the closest foe.',
+    evo:{ item:'silverPowder', name:'Megahorn', desc:'A huge spread of piercing horns.' },
+    stats:(l, e) => ({ dmg:(5 + 2*(l-1)) * (e?2:1), count:e?9:pick([3,3,4,5,5,6],l), cd:1.1 - .05*(l-1), pierce:e?3:1 }),
+    fire(m, s) {
+      const base = aimAngle(600);
+      for (let i = 0; i < s.count; i++) {
+        const a = base + (Math.random() - .5) * (m.evo ? 1 : .5), sp = 450 + Math.random()*120;
+        shoot({ vx:Math.cos(a)*sp, vy:Math.sin(a)*sp, r:5, dmg:s.dmg, type:'bug', pierce:s.pierce, life:1.2, kind:'needle' });
+      }
+    }
+  },
+  darkPulse: {
+    name:'Dark Pulse', type:'dark', desc:'A wave of dark energy bursts out around you.',
+    evo:{ item:'blackGlasses', name:'Night Daze', desc:'An enormous, crushing wave of darkness.' },
+    stats:(l, e) => ({ dmg:(16 + 6*(l-1)) * (e?2:1), cd:2.4 - .12*(l-1), radius:e?250:110 + 15*(l-1) }),
+    fire(m, s) {
+      G.zones.push({ kind:'quake', x:P.x, y:P.y, r:0, maxR:s.radius, life:.35, max:.35, dmg:s.dmg, type:'dark', color:'90,40,120', hit:new Set() });
+    }
+  },
+  dragonPulse: {
+    name:'Dragon Pulse', type:'dragon', desc:'Powerful piercing blasts at the toughest nearby foe.',
+    evo:{ item:'dragonFang', name:'Draco Meteor', desc:'Massive dragon blasts that tear through anything.' },
+    stats:(l, e) => ({ dmg:(30 + 12*(l-1)) * (e?2:1), count:e?3:pick([1,1,1,2,2,2],l), cd:2 - .1*(l-1), radius:e?22:12 + l }),
+    fire(m, s) {
+      const ts = enemiesByDist(P.x, P.y, 600).slice(0, 30).sort((a, b) => b.hp - a.hp);
+      for (let i = 0; i < s.count; i++) {
+        const t = ts[i % Math.max(1, ts.length)];
+        const a = t ? Math.atan2(t.y - P.y, t.x - P.x) : Math.atan2(P.fy, P.fx) + (Math.random() - .5);
+        shoot({ vx:Math.cos(a)*560, vy:Math.sin(a)*560, r:s.radius, dmg:s.dmg, type:'dragon', pierce:m.evo ? 999 : 3, life:1.4, kind:'dragon' });
+      }
+    }
+  },
+  dazzlingGleam: {
+    name:'Dazzling Gleam', type:'fairy', desc:'A flash of light hits every foe in a wide area.',
+    evo:{ item:'pixiePlate', name:'Moonblast', desc:'A blinding flash that covers the whole screen.' },
+    stats:(l, e) => ({ dmg:(12 + 5*(l-1)) * (e?2:1), cd:3 - .15*(l-1), radius:e?420:180 + 20*(l-1) }),
+    fire(m, s) {
+      hitArea(P.x, P.y, s.radius, s.dmg, 'fairy');
+      addFx({ kind:'flash', x:P.x, y:P.y, r:s.radius, life:.4, max:.4 });
+    }
+  },
+  swift: {
+    name:'Swift', type:'normal', desc:'Homing stars that never miss.',
+    evo:{ item:'silkScarf', name:'Tri Attack', desc:'A flurry of powerful homing stars.' },
+    stats:(l, e) => ({ dmg:(7 + 3*(l-1)) * (e?2:1), count:e?6:pick([1,2,2,3,3,4],l), cd:1.3 - .06*(l-1) }),
+    fire(m, s) {
+      for (let i = 0; i < s.count; i++) {
+        const a = Math.random()*Math.PI*2;
+        shoot({ vx:Math.cos(a)*380, vy:Math.sin(a)*380, r:m.evo?9:7, dmg:s.dmg, type:'normal', pierce:1, life:3, kind:'star', homing:true });
+      }
+    }
+  },
+};
+
+/* =========================================================================
+   Held items (passives)
+   ========================================================================= */
+const ITEMS = {
+  // type boosters (only offered when you know a move of that type)
+  charcoal:{ name:'Charcoal', sprite:'charcoal', forType:'fire', max:3 },
+  mysticWater:{ name:'Mystic Water', sprite:'mystic-water', forType:'water', max:3 },
+  miracleSeed:{ name:'Miracle Seed', sprite:'miracle-seed', forType:'grass', max:3 },
+  magnet:{ name:'Magnet', sprite:'magnet', forType:'electric', max:3 },
+  spellTag:{ name:'Spell Tag', sprite:'spell-tag', forType:'ghost', max:3 },
+  twistedSpoon:{ name:'Twisted Spoon', sprite:'twisted-spoon', forType:'psychic', max:3 },
+  hardStone:{ name:'Hard Stone', sprite:'hard-stone', forType:'rock', max:3 },
+  neverMeltIce:{ name:'Never-Melt Ice', sprite:'never-melt-ice', forType:'ice', max:3 },
+  sharpBeak:{ name:'Sharp Beak', sprite:'sharp-beak', forType:'flying', max:3 },
+  softSand:{ name:'Soft Sand', sprite:'soft-sand', forType:'ground', max:3 },
+  blackBelt:{ name:'Black Belt', sprite:'black-belt', forType:'fighting', max:3 },
+  poisonBarb:{ name:'Poison Barb', sprite:'poison-barb', forType:'poison', max:3 },
+  silkScarf:{ name:'Silk Scarf', sprite:'silk-scarf', forType:'normal', max:3 },
+  silverPowder:{ name:'Silver Powder', sprite:'silver-powder', forType:'bug', max:3 },
+  blackGlasses:{ name:'Black Glasses', sprite:'black-glasses', forType:'dark', max:3 },
+  dragonFang:{ name:'Dragon Fang', sprite:'dragon-fang', forType:'dragon', max:3 },
+  pixiePlate:{ name:'Pixie Plate', sprite:'pixie-plate', forType:'fairy', max:3 },
+  // general
+  leftovers:{ name:'Leftovers', sprite:'leftovers', max:5, desc:'Restores 0.6 HP per second per level.' },
+  quickClaw:{ name:'Quick Claw', sprite:'quick-claw', max:5, desc:'Moves recharge 7% faster per level.' },
+  muscleBand:{ name:'Muscle Band', sprite:'muscle-band', max:5, desc:'+10% damage per level.' },
+  choiceScarf:{ name:'Choice Scarf', sprite:'choice-scarf', max:5, desc:'+8% move speed per level.' },
+  luckyEgg:{ name:'Lucky Egg', sprite:'lucky-egg', max:5, desc:'+12% experience per level.' },
+  wideLens:{ name:'Wide Lens', sprite:'wide-lens', max:5, desc:'+10% attack area per level.' },
+  scopeLens:{ name:'Scope Lens', sprite:'scope-lens', max:5, desc:'+7% critical hit chance per level.' },
+  eviolite:{ name:'Eviolite', sprite:'eviolite', max:5, desc:'-10% damage taken per level (halved once fully evolved).' },
+  expShare:{ name:'Exp. Share', sprite:'exp-share', max:5, desc:'+30% pickup range per level.' },
+};
+const TYPE_ITEM = {};
+for (const k in ITEMS) if (ITEMS[k].forType) TYPE_ITEM[ITEMS[k].forType] = k;
+const MOVE_FOR_ITEM = {};
+for (const k in MOVES) MOVE_FOR_ITEM[MOVES[k].evo.item] = k;
+
+/* =========================================================================
+   Save data (this browser only): high scores, achievements, settings
+   ========================================================================= */
+const SAVE_KEY = 'pokemonSurvivors.v1';
+const DEFAULT_SETTINGS = { music:.5, sfx:.6, muted:false, name:'Trainer', region:0 };
+const Save = {
+  data: null,
+  load() {
+    let d = null;
+    try { d = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch (e) {}
+    this.data = Object.assign({ ach:{}, scores:[], wins:{}, played:{}, totalKills:0, runs:0, unlocked:0, regionWins:{} }, d || {});
+    this.data.settings = Object.assign({}, DEFAULT_SETTINGS, this.data.settings);
+  },
+  write() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(this.data)); } catch (e) {} },
+};
+Save.load();
+// saves from before regions existed: a past win means Kanto was beaten
+if (Object.keys(Save.data.wins).length && !Save.data.unlocked) { Save.data.unlocked = 1; Save.data.regionWins.kanto = true; }
+
+/* =========================================================================
+   Achievements. test(run, save) -> bool
+   ========================================================================= */
+const ACHIEVEMENTS = [
+  { id:'min1',     name:'First Steps',            desc:'Survive for 1 minute.',                    test:r => r.t >= 60 },
+  { id:'min5',     name:'Route Regular',          desc:'Survive for 5 minutes.',                   test:r => r.t >= 300 },
+  { id:'min10',    name:'Victory Road',           desc:'Survive for 10 minutes.',                  test:r => r.t >= 600 },
+  { id:'min15',    name:'Legend Awakened',        desc:'Survive until Mewtwo appears.',            test:r => r.t >= 900 },
+  ...REGIONS.map((R, i) => ({
+    id: i ? 'win_' + R.key : 'win', name:`${R.name} Champion`, desc:`Defeat ${R.finalBoss} in ${R.name}.`, test:r => r.won && r.region === i,
+  })),
+  { id:'worldChamp', name:'World Champion',       desc:'Become the Champion of every region.',     test:(r, s) => REGIONS.every(R => s.regionWins[R.key]) },
+  { id:'win3',     name:'Master Trainer',         desc:'Win with 3 different starters.',           test:(r, s) => Object.keys(s.wins).length >= 3 },
+  { id:'winAll',   name:'Pokémon Master',         desc:'Win with 10 different starters.',          test:(r, s) => Object.keys(s.wins).length >= 10 },
+  { id:'newMoves', name:'Type Explorer',          desc:'Use Pin Missile, Dark Pulse, Dragon Pulse or Dazzling Gleam.', test:r => r.newTypeMove },
+  { id:'onix',     name:'Rock Breaker',           desc:'Defeat Onix.',                             test:r => r.bosses.includes('Onix') },
+  { id:'snorlax',  name:'Wake-Up Call',           desc:'Defeat Snorlax.',                          test:r => r.bosses.includes('Snorlax') },
+  { id:'gyarados', name:'Rage Quelled',           desc:'Defeat Gyarados.',                         test:r => r.bosses.includes('Gyarados') },
+  { id:'dragonite',name:'Dragon Tamer',           desc:'Defeat Dragonite.',                        test:r => r.bosses.includes('Dragonite') },
+  { id:'charOnix', name:'Against the Odds',       desc:'Defeat Onix with the Charmander line.',    test:r => r.starter === 'charmander' && r.bosses.includes('Onix') },
+  { id:'evo1',     name:"What? It's Evolving!",   desc:'Evolve for the first time.',               test:r => r.stage >= 1 },
+  { id:'evo2',     name:'Final Form',             desc:'Reach your final evolution.',              test:r => r.stage >= 2 },
+  { id:'moveEvo',  name:'Move Tutor',             desc:'Evolve a move.',                           test:r => r.movesEvolved >= 1 },
+  { id:'moveEvo3', name:'TM Collector',           desc:'Evolve 3 moves in one run.',               test:r => r.movesEvolved >= 3 },
+  { id:'six',      name:'Full Moveset',           desc:'Know 6 moves at once.',                    test:r => r.moves >= 6 },
+  { id:'catch',    name:'Gotcha!',                desc:'Catch a shiny Pokémon.',                   test:r => r.caught >= 1 },
+  { id:'party',    name:'Full Party',             desc:'Have 4 allies at once.',                   test:r => r.allies >= 4 },
+  { id:'x4',       name:"It's Super Effective!!", desc:'Land a 4× super effective hit.',          test:r => r.hit4 },
+  { id:'ko1k',     name:'Wild Battle Pro',        desc:'KO 1,000 Pokémon in one run.',             test:r => r.kills >= 1000 },
+  { id:'ko5k',     name:'Unstoppable',            desc:'KO 5,000 Pokémon in one run.',             test:r => r.kills >= 5000 },
+  { id:'life25k',  name:'Seasoned Trainer',       desc:'KO 25,000 Pokémon in total.',              test:(r, s) => s.totalKills + r.kills >= 25000 },
+  { id:'lv50',     name:'Level 50',               desc:'Reach Lv 50 in one run.',                  test:r => r.level >= 50 },
+  { id:'untouch',  name:'Untouchable',            desc:'Go 3 minutes without taking damage.',      test:r => r.cleanT >= 180 },
+  { id:'dex',      name:'Pokédex Started',        desc:'Start runs with 8 different starters.',    test:(r, s) => Object.keys(s.played).length >= 8 },
+  { id:'dexAll',   name:'Pokédex Complete',       desc:'Start a run with every starter in every region.', test:(r, s) => Object.keys(s.played).length >= Object.keys(STARTERS).length },
+];
+
+/* =========================================================================
+   Sound: an original chiptune soundtrack + effects, synthesized live.
+   ========================================================================= */
+const SONG_DEFS = {
+  title: {
+    bpm:112, loop:true, chords:['C','Am','F','G','C','Am','F','G'], bass:'r...5...o...5...', arp:1,
+    kick:'x.......x.......', hat:'....x.......x...',
+    lead:['E5 - - - G5 - - - C6 - - - B5 - G5 -', 'A5 - - - - - E5 - C5 - - - E5 - - -', 'F5 - - - A5 - - - C6 - - - A5 - F5 -', 'G5 - - - - - - - D5 - - - . . . .',
+          'E5 - G5 - C6 - - - D6 - C6 - B5 - G5 -', 'A5 - - - C6 - - - E6 - - - D6 - C6 -', 'C6 - A5 - F5 - A5 - G5 - F5 - E5 - D5 -', 'D5 - - - G4 - - - B4 - - - D5 - - -'],
+  },
+  battle: {
+    bpm:148, loop:true, chords:['Am','F','G','E','Am','F','G','E'], bass:'r.o.r.o.r.o.r.o.', bassLen:1.4, arp:1,
+    kick:'x.......x.......', snare:'....x.......x...', hat:'..x...x...x...x.',
+    lead:['A4 - C5 - E5 - A5 - G5 - E5 - C5 - E5 -', 'F5 - - - E5 - C5 - A4 - C5 - F5 - - -', 'G5 - - - F5 - D5 - B4 - D5 - G5 - A5 -', 'B5 - - - - - G#5 - E5 - - - . . . .',
+          'A5 - . A5 G5 - E5 - C6 - B5 - A5 - E5 -', 'F5 - A5 - C6 - A5 - F5 - - - E5 - F5 -', 'G5 - B5 - D6 - B5 - G5 - - - A5 - B5 -', 'G#5 - - - B5 - - - E6 - - - . . . .'],
+  },
+  boss: {
+    bpm:165, loop:true, chords:['Dm','Dm','Bb','C','Dm','Dm','Bb','A'], bass:'r.ror.o.r.ror.o.', bassLen:1.2, arp:2,
+    kick:'x.....x.x.....x.', snare:'....x.......x..x', hat:'x.x.x.x.x.x.x.x.',
+    lead:['D5 - D5 - F5 - D5 - A5 - - - G5 - F5 -', 'E5 - F5 - G5 - E5 - D5 - - - C5 - D5 -', 'F5 - - - D5 - - - Bb4 - D5 - F5 - Bb5 -', 'A5 - G5 - - - E5 - C5 - - - E5 - G5 -',
+          'A5 - - - - - D6 - C6 - A5 - F5 - A5 -', 'G5 - F5 - E5 - F5 - D5 - - - . . A4 -', 'Bb4 - D5 - F5 - Bb5 - A5 - F5 - D5 - F5 -', 'E5 - - - C#5 - - - A4 - - - E5 - C#5 -'],
+  },
+  victory:  { bpm:150, loop:false, chords:[], lead:['C5 E5 G5 C6 - - G5 - C6 - - - - - - -', 'E6 - - - D6 - - - C6 - - - - - - -'] },
+  gameover: { bpm:90,  loop:false, chords:[], lead:['E5 - D5 - C5 - B4 - A4 - - - - - - -'] },
+};
+SONG_DEFS.final = Object.assign({}, SONG_DEFS.boss, { bpm:180 });
+
+const Sound = (() => {
+  let ac = null, master, musicBus, sfxBus, pulse25, pulse12, noiseBuf;
+  let song = null, cur = null, want = null, step = 0, nextT = 0, tr = 0, bpmMul = 1;
+  // each region plays the soundtrack in its own key and a little faster
+  const REGION_KEY = [0, 2, -2, 3, -3, 5, 1, -1, 4];
+  const songs = {}, last = {};
+  const SEMI = { C:0, D:2, E:4, F:5, G:7, A:9, B:11 };
+  const midiOf = n => { const m = /^([A-G])([#b]?)(-?\d)$/.exec(n); return 12*(+m[3] + 1) + SEMI[m[1]] + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0); };
+  const hz = m => 440 * Math.pow(2, (m - 69)/12);
+  const nhz = n => hz(midiOf(n));
+  function chordOf(c) { const m = /^([A-G][#b]?)(m?)$/.exec(c), root = midiOf(m[1] + '3'); return [root, root + (m[2] ? 3 : 4), root + 7]; }
+  function compile(s) {
+    const toks = s.lead.join(' ').trim().split(/\s+/), ev = {};
+    toks.forEach((t, i) => { if (t === '-' || t === '.') return; let len = 1; while (toks[i + len] === '-') len++; ev[i] = { m:midiOf(t), len }; });
+    return Object.assign({}, s, { ev, len:toks.length, ch:s.chords.map(chordOf) });
+  }
+  function makePulse(d) {
+    const n = 64, re = new Float32Array(n), im = new Float32Array(n);
+    for (let k = 1; k < n; k++) re[k] = 2/(k*Math.PI) * Math.sin(k*Math.PI*d);
+    return ac.createPeriodicWave(re, im);
+  }
+  function tone(bus, f, t, dur, o) {
+    const osc = ac.createOscillator(), g = ac.createGain();
+    if (typeof o.wave === 'string') osc.type = o.wave; else osc.setPeriodicWave(o.wave);
+    osc.frequency.setValueAtTime(f, t);
+    if (o.slide) osc.frequency.exponentialRampToValueAtTime(o.slide, t + dur);
+    const v = o.vol, a = o.a || .004;
+    g.gain.setValueAtTime(.0001, t);
+    g.gain.linearRampToValueAtTime(v, t + a);
+    g.gain.linearRampToValueAtTime(v * (o.sus ?? .6), t + Math.max(a + .01, dur*.4));
+    g.gain.linearRampToValueAtTime(.0001, t + dur);
+    osc.connect(g).connect(bus);
+    osc.start(t); osc.stop(t + dur + .03);
+  }
+  function noise(bus, t, dur, vol, freq, type = 'highpass') {
+    const src = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
+    src.buffer = noiseBuf; f.type = type; f.frequency.value = freq;
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.001, t + dur);
+    src.connect(f).connect(g).connect(bus); src.start(t); src.stop(t + dur + .02);
+  }
+  function playStep(s, t, spb) {
+    const S = song, e = S.ev[s];
+    if (e) tone(musicBus, hz(e.m + tr), t, e.len*spb*.92, { wave:pulse25, vol:.11, sus:.55 });
+    if (!S.ch.length) return;
+    const p = s % 16, ch = S.ch[Math.floor(s/16) % S.ch.length];
+    const b = S.bass[p];
+    if (b !== '.') tone(musicBus, hz(ch[0] + tr - 12 + (b === 'o' ? 12 : b === '5' ? 7 : 0)), t, spb*(S.bassLen || 1.6), { wave:'triangle', vol:.3, sus:.8 });
+    if (S.arp) tone(musicBus, hz(ch[[0, 1, 2, 1][p % 4]] + tr + 12*S.arp), t, spb*.8, { wave:pulse12, vol:.035 });
+    if (S.kick && S.kick[p] === 'x') tone(musicBus, 160, t, .14, { wave:'sine', vol:.55, slide:45, sus:.4 });
+    if (S.snare && S.snare[p] === 'x') { noise(musicBus, t, .12, .2, 1500); tone(musicBus, 190, t, .06, { wave:'triangle', vol:.12 }); }
+    if (S.hat && S.hat[p] === 'x') noise(musicBus, t, .035, .07, 7000);
+  }
+  function tick() {
+    if (!ac || !song) return;
+    const spb = 60/(song.bpm*bpmMul)/4;
+    while (song && nextT < ac.currentTime + .12) {
+      playStep(step, nextT, spb);
+      nextT += spb;
+      if (++step >= song.len) { if (song.loop) step = 0; else song = null; }
+    }
+  }
+  const SFX = {
+    levelup: t => ['C5', 'E5', 'G5', 'C6', 'E6'].forEach((n, i) => tone(sfxBus, nhz(n), t + i*.06, .12, { wave:pulse25, vol:.16 })),
+    select: t => tone(sfxBus, 880, t, .06, { wave:'square', vol:.07 }),
+    pickup: t => tone(sfxBus, 1300 + Math.random()*300, t, .05, { wave:'sine', vol:.06 }),
+    hurt: t => tone(sfxBus, 320, t, .14, { wave:'square', vol:.12, slide:90 }),
+    se: t => { tone(sfxBus, 660, t, .07, { wave:pulse25, vol:.1 }); tone(sfxBus, 990, t + .07, .1, { wave:pulse25, vol:.1 }); },
+    heal: t => ['E5', 'G5', 'B5'].forEach((n, i) => tone(sfxBus, nhz(n), t + i*.08, .15, { wave:'triangle', vol:.22 })),
+    catch: t => {
+      noise(sfxBus, t, .08, .2, 2000);
+      for (let i = 0; i < 3; i++) tone(sfxBus, 220, t + .3 + i*.35, .08, { wave:'square', vol:.1 });
+      ['C6', 'E6', 'G6'].forEach((n, i) => tone(sfxBus, nhz(n), t + 1.4 + i*.08, .2, { wave:pulse25, vol:.14 }));
+    },
+    evolve: t => { tone(sfxBus, 200, t, 1.3, { wave:'triangle', vol:.22, slide:1400, sus:.9 }); tone(sfxBus, 300, t, 1.3, { wave:pulse25, vol:.05, slide:2100, sus:.9 }); },
+    shiny: t => ['E6', 'B6', 'E7'].forEach((n, i) => tone(sfxBus, nhz(n), t + i*.07, .15, { wave:'sine', vol:.12 })),
+    alarm: t => { for (let i = 0; i < 3; i++) { tone(sfxBus, 660, t + i*.3, .14, { wave:'square', vol:.09 }); tone(sfxBus, 440, t + i*.3 + .15, .14, { wave:'square', vol:.09 }); } },
+    bossDown: t => { noise(sfxBus, t, .6, .3, 400, 'lowpass'); tone(sfxBus, 300, t, .6, { wave:'square', vol:.12, slide:60 }); },
+    ach: t => { tone(sfxBus, nhz('G5'), t, .1, { wave:pulse25, vol:.14 }); tone(sfxBus, nhz('C6'), t + .1, .28, { wave:pulse25, vol:.14 }); },
+  };
+  const THROTTLE = { pickup:.045, hurt:.15, se:.3 };
+  return {
+    init() {
+      if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      ac = new AC();
+      master = ac.createGain(); master.connect(ac.destination);
+      musicBus = ac.createGain(); musicBus.connect(master);
+      sfxBus = ac.createGain(); sfxBus.connect(master);
+      pulse25 = makePulse(.25); pulse12 = makePulse(.125);
+      noiseBuf = ac.createBuffer(1, ac.sampleRate*.5, ac.sampleRate);
+      const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random()*2 - 1;
+      for (const k in SONG_DEFS) songs[k] = compile(SONG_DEFS[k]);
+      this.applyVolumes();
+      setInterval(tick, 25);
+      if (want) { const w = want; want = null; this.music(...w); }
+    },
+    music(name, region = 0) {
+      if (!ac) { want = [name, region]; return; }
+      const id = name + region;
+      if (cur === id && song) return;
+      cur = id; song = songs[name] || null; step = 0; nextT = ac.currentTime + .06;
+      tr = REGION_KEY[region] || 0; bpmMul = 1 + .03*region;
+    },
+    sfx(name) {
+      if (!ac || Save.data.settings.muted) return;
+      const now = ac.currentTime;
+      if (THROTTLE[name] && now - (last[name] || -9) < THROTTLE[name]) return;
+      last[name] = now;
+      SFX[name](now + .005);
+    },
+    applyVolumes() {
+      if (!ac) return;
+      const st = Save.data.settings;
+      master.gain.value = st.muted ? 0 : 1;
+      musicBus.gain.value = st.music * .7;
+      sfxBus.gain.value = st.sfx;
+    },
+  };
+})();
+
+/* =========================================================================
+   Canvas + input
+   ========================================================================= */
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = W * DPR; cv.height = H * DPR;
+  cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+}
+addEventListener('resize', resize); resize();
+
+const keys = {};
+let pointer = null;
+addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  Sound.init();
+  keys[e.key.toLowerCase()] = true;
+  if (e.key.toLowerCase() === 'm') { toggleMute(); return; }
+  if (e.key === 'Escape' && closeOverlay()) return;
+  if (!G) return;
+  if (G.choosing && /^[1-4]$/.test(e.key)) { const b = document.querySelectorAll('.choice')[+e.key - 1]; if (b) b.click(); return; }
+  if ((e.key === 'Escape' || e.key.toLowerCase() === 'p') && G.running && !G.choosing) togglePause();
+});
+addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; pointer = null; if (G && G.running && !G.choosing && !G.paused) togglePause(); });
+addEventListener('pointerdown', () => Sound.init());
+cv.addEventListener('pointerdown', e => { pointer = { x:e.clientX, y:e.clientY }; cv.setPointerCapture(e.pointerId); });
+cv.addEventListener('pointermove', e => { if (pointer) { pointer.x = e.clientX; pointer.y = e.clientY; } });
+cv.addEventListener('pointerup', () => { pointer = null; });
+cv.addEventListener('pointercancel', () => { pointer = null; });
+
+/* =========================================================================
+   Game state
+   ========================================================================= */
+let G = null, P = null;
+const $ = id => document.getElementById(id);
+
+function newGame(starterKey) {
+  const st = STARTERS[starterKey];
+  P = {
+    starter: st, stage: 0, x: 0, y: 0, r: 16, fx: 1, fy: 0, dirX: 1, up: false,
+    baseHp: st.hp, maxHp: st.hp, hp: st.hp, baseSpd: st.spd, inv: 0, hurt: 0, evoT: 0, prevId: 0,
+  };
+  P.id = st.stages[0][0]; P.name = st.stages[0][1]; P.types = st.types[0];
+  G = {
+    running: true, paused: false, choosing: false, t: 0, uid: 0,
+    enemies: [], projs: [], eprojs: [], zones: [], gems: [], pickups: [], fx: [], texts: [], allies: [], trail: [],
+    moves: [], items: {}, protein: 1, level: 1, xp: 0, xpNext: xpFor(1), pending: 0,
+    kills: 0, spawnT: 0, nextElite: 50, bossIdx: 0, swarmIdx: 0, boss: null, shake: 0, seT: 0,
+    cam: { x: -W/2, y: -H/2 }, trailT: 0, hudT: 0, bannerT: 0,
+    starterKey, region: st.region, won: false, hit4: false, lastHurt: 0, bosses: [], caught: 0, movesEvolved: 0, achT: 1,
+  };
+  addMove(st.move);
+  recalc();
+  Save.data.played[starterKey] = true; Save.data.runs++; Save.write();
+  Sound.music('battle', st.region);
+  for (const s of ['title', 'end', 'pause', 'levelup', 'achScreen', 'lbScreen']) $(s).classList.add('hidden');
+  $('hud').classList.remove('hidden');
+  renderLoadout();
+  banner(`Go! ${P.name}!`);
+}
+
+const xpFor = l => Math.floor(5 + (l-1)*6 + Math.max(0, l-20)*14 + Math.max(0, l-40)*24);
+
+function recalc() {
+  const I = k => G.items[k] || 0;
+  const fullyEvolved = P.stage >= P.starter.stages.length - 1;
+  G.stat = {
+    dmg: (1 + .1*I('muscleBand')) * (1 + .1*P.stage) * G.protein,
+    cd: Math.max(.4, 1 - .07*I('quickClaw')),
+    area: 1 + .1*I('wideLens'),
+    speed: P.baseSpd * (1 + .08*I('choiceScarf')) * (1 + .05*P.stage),
+    xp: 1 + .12*I('luckyEgg'),
+    crit: .05 + .07*I('scopeLens'),
+    armor: Math.min(.6, (fullyEvolved ? .05 : .1) * I('eviolite')),
+    regen: .6*I('leftovers'),
+    pickup: 70 * (1 + .3*I('expShare')),
+  };
+}
+
+function addMove(key) { G.moves.push({ key, lvl: 1, evo: false, t: .3 }); }
+
+function moveStats(m) {
+  const s = MOVES[m.key].stats(m.lvl, m.evo);
+  for (const k of ['radius', 'width', 'blast']) if (s[k]) s[k] *= G.stat.area;
+  if (s.cd) s.cd *= G.stat.cd;
+  return s;
+}
+
+/* =========================================================================
+   Helpers
+   ========================================================================= */
+function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = (Math.random()*(i+1))|0; [a[i], a[j]] = [a[j], a[i]]; } return a; }
+function enemiesByDist(x, y, range) {
+  const arr = [], r2 = range*range;
+  for (const e of G.enemies) { if (e.dead) continue; const d = (e.x-x)**2 + (e.y-y)**2; if (d < r2) arr.push([d, e]); }
+  arr.sort((a, b) => a[0] - b[0]);
+  return arr.map(a => a[1]);
+}
+function nearestEnemy(x, y, range) {
+  let best = null, bd = range*range;
+  for (const e of G.enemies) { if (e.dead) continue; const d = (e.x-x)**2 + (e.y-y)**2; if (d < bd) { bd = d; best = e; } }
+  return best;
+}
+// angle to the closest foe in range, else the way you're facing
+function aimAngle(range) {
+  const t = nearestEnemy(P.x, P.y, range);
+  return t ? Math.atan2(t.y - P.y, t.x - P.x) : Math.atan2(P.fy, P.fx);
+}
+function boltPts(x, y) {
+  const pts = [[x + (Math.random()-.5)*60, y - 420]];
+  for (let i = 1; i < 8; i++) pts.push([x + (Math.random()-.5)*36*(1 - i/8), y - 420 + i*420/8]);
+  pts.push([x, y]);
+  return pts;
+}
+
+// --- spatial grid for enemies ---
+const CELL = 64, grid = new Map();
+function buildGrid() {
+  grid.clear();
+  for (const e of G.enemies) {
+    if (e.dead) continue;
+    const k = (Math.floor(e.x/CELL) + 50000) * 100000 + (Math.floor(e.y/CELL) + 50000);
+    let c = grid.get(k); if (!c) grid.set(k, c = []); c.push(e);
+  }
+}
+function query(x, y, r, out) {
+  out.length = 0;
+  const x0 = Math.floor((x - r)/CELL), x1 = Math.floor((x + r)/CELL), y0 = Math.floor((y - r)/CELL), y1 = Math.floor((y + r)/CELL);
+  for (let gx = x0; gx <= x1; gx++) for (let gy = y0; gy <= y1; gy++) {
+    const c = grid.get((gx + 50000) * 100000 + (gy + 50000));
+    if (c) for (const e of c) out.push(e);
+  }
+  return out;
+}
+const tmpA = [], tmpP = [], tmpS = [], tmpC = [];
+
+/* =========================================================================
+   Damage
+   ========================================================================= */
+function damageEnemy(e, base, type, src = 'player', srcTypes = null, kx = 0, ky = 0) {
+  if (e.dead) return;
+  const m = eff(type, e.types);
+  const stabTypes = src === 'player' ? P.types : srcTypes;
+  const stab = stabTypes && stabTypes.includes(type) ? 1.5 : 1;
+  const item = src === 'player' ? 1 + .15*(G.items[TYPE_ITEM[type]] || 0) : 1;
+  const crit = Math.random() < G.stat.crit;
+  const d = base * stab * item * m * (crit ? 2 : 1) * (src === 'player' ? G.stat.dmg : 1);
+  e.hp -= d; e.flash = .1;
+  if (!e.boss) { e.kx += kx * (e.elite ? .3 : 1); e.ky += ky * (e.elite ? .3 : 1); }
+  const col = m >= 2 ? '#ffe040' : m < 1 ? '#c8c8d0' : '#fff';
+  addText(e.x + (Math.random()-.5)*10, e.y - e.r, Math.round(d) + (crit ? '!' : ''), col, m >= 2 ? 11 : m < 1 ? 7 : 9);
+  if (m >= 4) G.hit4 = true;
+  if (m >= 2 && G.t - G.seT > 2.5) { G.seT = G.t; Sound.sfx('se'); addText(e.x, e.y - e.r - 18, m >= 4 ? "It's super effective!!" : "It's super effective!", '#ffe040', 9, 1.1); }
+  if (e.hp <= 0) killEnemy(e);
+}
+
+// hit every enemy in a circle (optionally restricted to an arc), with optional per-enemy cooldown
+function hitArea(x, y, r, dmg, type, o = {}) {
+  query(x, y, r + 60, tmpA);
+  for (const e of tmpA) {
+    if (e.dead) continue;
+    const dx = e.x - x, dy = e.y - y, rr = r + e.r*.6;
+    if (dx*dx + dy*dy > rr*rr) continue;
+    if (o.arc) {
+      let da = Math.atan2(dy, dx) - o.arc[0];
+      while (da > Math.PI) da -= Math.PI*2; while (da < -Math.PI) da += Math.PI*2;
+      if (Math.abs(da) > o.arc[1] && dx*dx + dy*dy > 30*30) continue;
+    }
+    if (o.key) { if ((e.hitT[o.key] || -99) + o.cd > G.t) continue; e.hitT[o.key] = G.t; }
+    let kx = 0, ky = 0;
+    if (o.kbFrom) { const [fx, fy, f] = o.kbFrom, d = Math.hypot(e.x - fx, e.y - fy) || 1; kx = (e.x - fx)/d*f; ky = (e.y - fy)/d*f; }
+    if (o.onHit) o.onHit(e);
+    damageEnemy(e, dmg, type, o.src || 'player', o.srcTypes, kx, ky);
+  }
+}
+
+function beam(x, y, a, len, w, dmg, type, onHit) {
+  const ex = x + Math.cos(a)*len, ey = y + Math.sin(a)*len;
+  const dx = ex - x, dy = ey - y, L2 = dx*dx + dy*dy;
+  for (const e of G.enemies) {
+    if (e.dead) continue;
+    let t = ((e.x - x)*dx + (e.y - y)*dy) / L2; t = Math.max(0, Math.min(1, t));
+    const px = x + dx*t, py = y + dy*t, rr = w/2 + e.r;
+    if ((e.x - px)**2 + (e.y - py)**2 > rr*rr) continue;
+    onHit && onHit(e);
+    damageEnemy(e, dmg, type);
+  }
+  addFx({ kind:'beam', x, y, x2:ex, y2:ey, w, color:TC[type], life:.25, max:.25 });
+}
+
+function shoot(o) {
+  G.projs.push(Object.assign({ id: ++G.uid, x:P.x, y:P.y, vx:0, vy:0, r:6, dmg:10, type:'normal', pierce:1, life:2, hit:new Set(), kb:0, kind:'orb', src:'player', srcTypes:null, hitCd:0, age:0 }, o));
+}
+
+function hurtPlayer(dmg, type) {
+  if (P.inv > 0 || P.evoT > 0) return;
+  const m = Math.max(.5, Math.min(2, eff(type, P.types)));
+  const d = dmg * m * (1 - G.stat.armor);
+  P.hp -= d; P.inv = .35; P.hurt = .2;
+  G.lastHurt = G.t; Sound.sfx('hurt');
+  addText(P.x, P.y - 26, '-' + Math.round(d), m > 1 ? '#ff6040' : '#ff9090', m > 1 ? 11 : 9);
+  if (P.hp <= 0) { P.hp = 0; endGame(false); }
+}
+
+function killEnemy(e) {
+  e.dead = true;
+  G.kills++;
+  addFx({ kind:'poof', x:e.x, y:e.y, r:e.r, life:.3, max:.3 });
+  if (e.boss) {
+    G.boss = null;
+    G.bosses.push(e.name);
+    $('bossbar').classList.add('hidden');
+    if (e.final) { endGame(true); return; }
+    Sound.sfx('bossDown'); Sound.music('battle', G.region);
+    G.pickups.push({ kind:'candy', x:e.x, y:e.y });
+    banner(`The wild ${e.name.toUpperCase()} fainted!`);
+    return;
+  }
+  dropGem(e.x, e.y, e.xp);
+  if (e.elite) G.pickups.push({ kind:'ball', x:e.x, y:e.y, mon:{ id:e.id, name:e.name, types:e.types } });
+  else if (Math.random() < .012) G.pickups.push({ kind:'berry', x:e.x, y:e.y });
+}
+
+function dropGem(x, y, v) {
+  if (G.gems.length > 350) { // merge into an existing gem so the screen doesn't flood
+    const g = G.gems[(Math.random()*G.gems.length)|0]; g.v += v; return;
+  }
+  G.gems.push({ x: x + (Math.random()-.5)*8, y: y + (Math.random()-.5)*8, v, mag:false });
+}
+
+function addText(x, y, txt, color, size, life = .7) {
+  if (G.texts.length > 140) G.texts.shift();
+  G.texts.push({ x, y, txt, color, size, life, max:life });
+}
+function addFx(f) { if (G.fx.length < 300) G.fx.push(f); }
+
+/* =========================================================================
+   Spawning
+   ========================================================================= */
+function spawnRingPos(extra = 40) {
+  const a = Math.random()*Math.PI*2, d = Math.hypot(W, H)/2 + extra;
+  return [P.x + Math.cos(a)*d, P.y + Math.sin(a)*d];
+}
+function makeEnemy(sp, x, y) {
+  const m = G.t/60;
+  const R = REGIONS[G.region];
+  const hpScale = (1 + m*.15 + Math.max(0, m - 10)*.15) * R.hpMul;
+  const e = {
+    id:sp.id, name:sp.name, types:sp.types, x, y, r:sp.r, hp:sp.hp*hpScale, speed:sp.spd*(.9 + Math.random()*.2),
+    dmg:sp.dmg*(1 + m*.06)*R.dmgMul, xp:sp.xp*R.xpMul, kx:0, ky:0, flash:0, freeze:0, slowT:0, slowF:0, dirX:-1, hitT:{}, dead:false,
+  };
+  e.maxHp = e.hp;
+  return e;
+}
+function currentPool() {
+  const m = G.t/60;
+  const pool = [];
+  for (const [a, b, list] of REGIONS[G.region].waves) if (m >= a && m < b) pool.push(...list);
+  return pool;
+}
+function spawning(dt) {
+  const m = G.t/60;
+  const target = Math.min(340, (14 + m*20) * REGIONS[G.region].crowd);
+  G.spawnT -= dt;
+  if (G.spawnT <= 0) {
+    G.spawnT = .2;
+    const pool = currentPool();
+    const alive = G.enemies.length;
+    const n = Math.min(6, Math.ceil((target - alive) / 4));
+    for (let i = 0; i < n; i++) {
+      const sp = pool[(Math.random()*pool.length)|0];
+      const [x, y] = spawnRingPos();
+      G.enemies.push(makeEnemy(sp, x, y));
+    }
+  }
+  // shiny elite
+  if (G.t >= G.nextElite) {
+    G.nextElite = G.t + 45 + Math.random()*20;
+    const pool = currentPool(), sp = pool[(Math.random()*pool.length)|0];
+    const [x, y] = spawnRingPos();
+    const e = makeEnemy(sp, x, y);
+    e.elite = true; e.shiny = true; e.hp *= 8; e.maxHp = e.hp; e.r *= 1.4; e.xp *= 5; e.speed *= .9;
+    G.enemies.push(e);
+    banner(`A shiny ${sp.name} appeared!`);
+    Sound.sfx('shiny');
+  }
+  // bosses
+  const R = REGIONS[G.region], b = R.bosses[G.bossIdx];
+  if (b && G.t >= b.t) {
+    G.bossIdx++;
+    const [x, y] = spawnRingPos(0);
+    const e = makeEnemy({ id:b.id, name:b.name, types:b.types, hp:b.hp, spd:b.spd, dmg:b.dmg, r:b.r, xp:b.xp }, x, y);
+    e.hp = e.maxHp = b.hp * R.hpMul; e.boss = true; e.final = !!b.final; e.atkT = 3; e.atkN = 0; e.speed = b.spd;
+    G.enemies.push(e); G.boss = e;
+    $('bossname').textContent = b.name.toUpperCase();
+    $('bossbar').classList.remove('hidden');
+    banner(b.final ? `${b.name.toUpperCase()} has awoken!` : `A wild ${b.name.toUpperCase()} appeared!`);
+    Sound.sfx('alarm'); Sound.music(b.final ? 'final' : 'boss', R.index);
+  }
+  // swarms (a flock of whatever flying Pokémon are around right now)
+  if (SWARMS[G.swarmIdx] !== undefined && G.t >= SWARMS[G.swarmIdx]) {
+    G.swarmIdx++;
+    const pool = currentPool(), fliers = pool.filter(s => s.types.includes('flying'));
+    const sp = (fliers.length ? fliers : pool)[(Math.random()*(fliers.length || pool.length))|0];
+    const a = Math.random()*Math.PI*2, dx = Math.cos(a), dy = Math.sin(a), d = Math.hypot(W, H)/2 + 80;
+    for (let i = 0; i < 30; i++) {
+      const off = (Math.random() - .5) * 700, back = Math.random()*200;
+      const e = makeEnemy(sp, P.x - dx*(d + back) - dy*off, P.y - dy*(d + back) + dx*off);
+      e.swarm = true; e.sdx = dx; e.sdy = dy; e.speed = sp.spd*1.5; e.life = 10;
+      G.enemies.push(e);
+    }
+    banner(`A swarm of ${sp.name} is incoming!`);
+  }
+}
+
+/* =========================================================================
+   Update
+   ========================================================================= */
+function update(dt) {
+  G.t += dt;
+  G.shake = Math.max(0, G.shake - dt*30);
+  buildGrid();
+  updatePlayer(dt);
+  for (const m of G.moves) {
+    const d = MOVES[m.key], s = moveStats(m);
+    if (d.passive) d.tick(m, s, dt);
+    else { m.t -= dt; if (m.t <= 0) { m.t = s.cd; d.fire(m, s); } }
+  }
+  updateAllies(dt);
+  spawning(dt);
+  updateEnemies(dt);
+  updateProjs(dt);
+  updateEProjs(dt);
+  updateZones(dt);
+  updatePickups(dt);
+  for (const f of G.fx) f.life -= dt;
+  for (const t of G.texts) { t.life -= dt; t.y -= 28*dt; }
+  G.enemies = G.enemies.filter(e => !e.dead);
+  G.projs = G.projs.filter(p => !p.dead);
+  G.eprojs = G.eprojs.filter(p => !p.dead);
+  G.zones = G.zones.filter(z => !z.dead);
+  G.fx = G.fx.filter(f => f.life > 0);
+  G.texts = G.texts.filter(t => t.life > 0);
+  G.cam.x = P.x - W/2; G.cam.y = P.y - H/2;
+  G.achT -= dt;
+  if (G.achT <= 0 && G.running) { G.achT = 1; checkAch(); }
+}
+
+function updatePlayer(dt) {
+  let mx = 0, my = 0;
+  if (keys.a || keys.arrowleft) mx--; if (keys.d || keys.arrowright) mx++;
+  if (keys.w || keys.arrowup) my--;   if (keys.s || keys.arrowdown) my++;
+  if (!mx && !my && pointer) {
+    const dx = pointer.x - W/2, dy = pointer.y - H/2, d = Math.hypot(dx, dy);
+    if (d > 12) { mx = dx/d; my = dy/d; }
+  }
+  const len = Math.hypot(mx, my);
+  if (len) {
+    mx /= len; my /= len;
+    P.x += mx * G.stat.speed * dt; P.y += my * G.stat.speed * dt;
+    P.fx = mx; P.fy = my;
+    if (Math.abs(mx) > .2) P.dirX = mx;
+    P.up = my < -.6;
+  }
+  P.moving = !!len;
+  P.inv -= dt; P.hurt -= dt; P.evoT -= dt;
+  P.hp = Math.min(P.maxHp, P.hp + G.stat.regen*dt);
+  // trail for allies
+  G.trailT -= dt;
+  if (G.trailT <= 0) { G.trailT = .04; G.trail.unshift([P.x, P.y]); if (G.trail.length > 60) G.trail.pop(); }
+  // contact damage
+  query(P.x, P.y, P.r + 60, tmpC);
+  let worst = null;
+  for (const e of tmpC) {
+    if (e.dead) continue;
+    const rr = P.r + e.r*.75;
+    if ((e.x - P.x)**2 + (e.y - P.y)**2 < rr*rr && (!worst || e.dmg > worst.dmg)) worst = e;
+  }
+  if (worst) hurtPlayer(worst.dmg, worst.types[0]);
+}
+
+function updateAllies(dt) {
+  G.allies.forEach((a, i) => {
+    const tp = G.trail[Math.min(G.trail.length - 1, (i + 1) * 9)] || [P.x, P.y];
+    const dx = tp[0] - a.x, dy = tp[1] - a.y;
+    a.x += dx * Math.min(1, dt*8); a.y += dy * Math.min(1, dt*8);
+    if (Math.abs(dx) > 1) a.dirX = dx;
+    a.cd -= dt;
+    if (a.cd <= 0) {
+      a.cd = 1.1 * G.stat.cd;
+      const t = nearestEnemy(a.x, a.y, 450);
+      if (t) {
+        const ang = Math.atan2(t.y - a.y, t.x - a.x);
+        const dmg = (6 + G.level*1.5) * (1 + .1*(G.items.muscleBand || 0));
+        shoot({ x:a.x, y:a.y, vx:Math.cos(ang)*400, vy:Math.sin(ang)*400, r:6, dmg, type:a.types[0], src:'ally', srcTypes:a.types, life:1.4, kind:'orb' });
+      }
+    }
+  });
+}
+
+function updateEnemies(dt) {
+  const far = Math.max(W, H)*.9 + 250;
+  for (const e of G.enemies) {
+    if (e.dead) continue;
+    e.flash -= dt;
+    let sp = e.speed;
+    if (e.freeze > 0) { e.freeze -= dt; sp = 0; }
+    if (e.slowT > 0) { e.slowT -= dt; sp *= 1 - e.slowF; }
+    let dx, dy;
+    if (e.swarm) {
+      dx = e.sdx; dy = e.sdy; e.life -= dt;
+      if (e.life <= 0) { e.dead = true; continue; }
+    } else {
+      dx = P.x - e.x; dy = P.y - e.y;
+      const d = Math.hypot(dx, dy) || 1; dx /= d; dy /= d;
+      if (!e.boss && d > far) { // wrap stragglers back around to where the player is heading
+        const a = Math.atan2(P.fy, P.fx) + (Math.random() - .5)*1.6, r = Math.hypot(W, H)/2 + 40;
+        e.x = P.x + Math.cos(a)*r; e.y = P.y + Math.sin(a)*r; continue;
+      }
+    }
+    e.x += (dx*sp + e.kx)*dt; e.y += (dy*sp + e.ky)*dt;
+    const decay = Math.max(0, 1 - 9*dt); e.kx *= decay; e.ky *= decay;
+    if (Math.abs(dx) > .15) e.dirX = dx;
+    // separation
+    if (!e.swarm) {
+      query(e.x, e.y, e.r + 30, tmpS);
+      for (const o of tmpS) {
+        if (o === e || o.dead) continue;
+        const ox = e.x - o.x, oy = e.y - o.y, rr = (e.r + o.r)*.8, d2 = ox*ox + oy*oy;
+        if (d2 < rr*rr && d2 > .01) {
+          const d = Math.sqrt(d2), push = (rr - d) * .5 * (e.boss ? .1 : o.boss ? 1.5 : 1);
+          e.x += ox/d*push; e.y += oy/d*push;
+        }
+      }
+    }
+    if (e.boss) bossAttack(e, dt);
+  }
+}
+
+function bossAttack(e, dt) {
+  e.atkT -= dt;
+  if (e.atkT > 0) return;
+  e.atkN++;
+  const t = e.types[0], dmg = e.dmg*.6;
+  if (e.final) {
+    e.atkT = 1.8;
+    if (e.atkN % 2) ring(e, 18, 170, dmg, t);
+    else { const a = Math.atan2(P.y - e.y, P.x - e.x); for (let i = -2; i <= 2; i++) eshoot(e, a + i*.16, 300, dmg, t); }
+  } else {
+    e.atkT = 2.8 - G.bossIdx*.2;
+    if (e.atkN % 3 === 0) { const a = Math.atan2(P.y - e.y, P.x - e.x); for (let i = -1; i <= 1; i++) eshoot(e, a + i*.2, 260, dmg, t); }
+    else ring(e, 10 + G.bossIdx*2, 160, dmg, t);
+  }
+}
+function ring(e, n, sp, dmg, t) { const o = Math.random()*Math.PI; for (let i = 0; i < n; i++) eshoot(e, o + i*Math.PI*2/n, sp, dmg, t); }
+function eshoot(e, a, sp, dmg, t) { G.eprojs.push({ x:e.x, y:e.y, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp, r:8, dmg, type:t, life:5 }); }
+
+function updateProjs(dt) {
+  for (const p of G.projs) {
+    if (p.dead) continue;
+    p.age += dt; p.life -= dt;
+    if (p.life <= 0) { p.dead = true; continue; }
+    if (p.homing) {
+      if (!p.target || p.target.dead) p.target = nearestEnemy(p.x, p.y, 700);
+      if (p.target) {
+        const want = Math.atan2(p.target.y - p.y, p.target.x - p.x), cur = Math.atan2(p.vy, p.vx);
+        let da = want - cur; while (da > Math.PI) da -= Math.PI*2; while (da < -Math.PI) da += Math.PI*2;
+        const na = cur + Math.max(-9*dt, Math.min(9*dt, da)), sp = Math.hypot(p.vx, p.vy);
+        p.vx = Math.cos(na)*sp; p.vy = Math.sin(na)*sp;
+      }
+    }
+    p.x += p.vx*dt; p.y += p.vy*dt;
+    if (p.bounce) {
+      const L = G.cam.x, T = G.cam.y;
+      if ((p.x < L + p.r && p.vx < 0) || (p.x > L + W - p.r && p.vx > 0)) p.vx *= -1;
+      if ((p.y < T + p.r && p.vy < 0) || (p.y > T + H - p.r && p.vy > 0)) p.vy *= -1;
+    }
+    query(p.x, p.y, p.r + 60, tmpP);
+    for (const e of tmpP) {
+      if (e.dead) continue;
+      const rr = p.r + e.r*.8;
+      if ((e.x - p.x)**2 + (e.y - p.y)**2 > rr*rr) continue;
+      if (p.hitCd) { if ((e.hitT[p.id] || -99) + p.hitCd > G.t) continue; e.hitT[p.id] = G.t; }
+      else { if (p.hit.has(e)) continue; p.hit.add(e); }
+      let kx = 0, ky = 0;
+      if (p.kb) { const sp = Math.hypot(p.vx, p.vy) || 1; kx = p.vx/sp*p.kb; ky = p.vy/sp*p.kb; }
+      damageEnemy(e, p.dmg, p.type, p.src, p.srcTypes, kx, ky);
+      if (p.blast) {
+        hitArea(p.x, p.y, p.blast, p.dmg*.6, p.type);
+        addFx({ kind:'burst', x:p.x, y:p.y, r:p.blast, color:TC[p.type], life:.3, max:.3 });
+      }
+      if (!p.hitCd && --p.pierce <= 0) { p.dead = true; break; }
+    }
+  }
+}
+
+function updateEProjs(dt) {
+  for (const p of G.eprojs) {
+    p.life -= dt; p.x += p.vx*dt; p.y += p.vy*dt;
+    if (p.life <= 0) { p.dead = true; continue; }
+    const rr = p.r + P.r*.8;
+    if ((p.x - P.x)**2 + (p.y - P.y)**2 < rr*rr) { hurtPlayer(p.dmg, p.type); p.dead = true; }
+  }
+}
+
+function updateZones(dt) {
+  for (const z of G.zones) {
+    if (z.kind === 'rock') {
+      z.delay -= dt;
+      if (z.delay <= 0) {
+        hitArea(z.x, z.y, z.r, z.dmg, 'rock');
+        addFx({ kind:'burst', x:z.x, y:z.y, r:z.r, color:'#8a7448', life:.35, max:.35 });
+        G.shake = Math.max(G.shake, 3);
+        z.dead = true;
+      }
+    } else if (z.kind === 'quake') {
+      z.life -= dt;
+      z.r = z.maxR * (1 - z.life/z.max);
+      query(z.x, z.y, z.r + 60, tmpA);
+      for (const e of tmpA) {
+        if (e.dead || z.hit.has(e)) continue;
+        if ((e.x - z.x)**2 + (e.y - z.y)**2 < (z.r + e.r)**2) { z.hit.add(e); damageEnemy(e, z.dmg, z.type); }
+      }
+      if (z.life <= 0) z.dead = true;
+    } else if (z.kind === 'lob') {
+      z.t += dt;
+      if (z.t >= z.T) { z.kind = 'puddle'; z.life = z.dur; z.max = z.dur; z.tick = 0; }
+    } else if (z.kind === 'puddle') {
+      z.life -= dt; z.tick -= dt;
+      if (z.tick <= 0) { z.tick = .4; hitArea(z.x, z.y, z.r, z.dmg, 'poison'); }
+      if (z.life <= 0) z.dead = true;
+    }
+  }
+}
+
+function updatePickups(dt) {
+  const pr = G.stat.pickup;
+  for (const g of G.gems) {
+    const dx = P.x - g.x, dy = P.y - g.y, d = Math.hypot(dx, dy);
+    if (!g.mag && d < pr) g.mag = true;
+    if (g.mag) {
+      g.sp = (g.sp || 150) + 900*dt;
+      const step = g.sp*dt;
+      if (d < P.r + 6 || d <= step) { g.dead = true; Sound.sfx('pickup'); gainXp(g.v * G.stat.xp); }
+      else { g.x += dx/d*step; g.y += dy/d*step; }
+    }
+  }
+  G.gems = G.gems.filter(g => !g.dead);
+  for (const k of G.pickups) {
+    const dx = P.x - k.x, dy = P.y - k.y, d = Math.hypot(dx, dy) || 1;
+    if (d < pr*.6) { k.x += dx/d*300*dt; k.y += dy/d*300*dt; }
+    if (d < P.r + 14) { k.dead = true; collect(k); }
+  }
+  G.pickups = G.pickups.filter(k => !k.dead);
+}
+
+function collect(k) {
+  if (k.kind === 'berry') {
+    const h = P.maxHp*.3; P.hp = Math.min(P.maxHp, P.hp + h);
+    addText(P.x, P.y - 30, '+' + Math.round(h) + ' HP', '#70f070', 10, 1);
+    Sound.sfx('heal');
+  } else if (k.kind === 'candy') {
+    banner('Got a bag of Rare Candies!');
+    for (let i = 0; i < 3; i++) gainXp(G.xpNext - G.xp + .01);
+  } else if (k.kind === 'ball') {
+    if (G.allies.length < 4) {
+      G.allies.push({ ...k.mon, x:k.x, y:k.y, cd:.5, dirX:1 });
+      G.caught++; Sound.sfx('catch');
+      banner(`Gotcha! Shiny ${k.mon.name} was caught!`);
+      renderLoadout();
+    } else {
+      P.hp = Math.min(P.maxHp, P.hp + P.maxHp*.5); gainXp(40);
+      banner(`Your party is full. ${k.mon.name} was released.`);
+    }
+  }
+}
+
+/* =========================================================================
+   Levels, evolution, level-up choices
+   ========================================================================= */
+function gainXp(v) {
+  G.xp += v;
+  while (G.xp >= G.xpNext) {
+    G.xp -= G.xpNext; G.level++; G.xpNext = xpFor(G.level); G.pending++;
+    const nextStage = EVO_LEVELS.indexOf(G.level) + 1;
+    if (nextStage > 0 && nextStage < P.starter.stages.length && P.stage < nextStage) evolve(nextStage);
+  }
+  if (G.pending > 0 && !G.choosing && G.running) openLevelUp();
+}
+
+function evolve(stage) {
+  const old = P.name;
+  P.prevId = P.id; P.stage = stage;
+  [P.id, P.name] = P.starter.stages[stage];
+  P.types = P.starter.types[stage];
+  P.maxHp = Math.round(P.baseHp * (1 + .35*stage));
+  P.hp = P.maxHp; P.r = 16 + stage*3; P.evoT = 1.4;
+  recalc();
+  banner(`What? ${old} is evolving! ... ${old} evolved into ${P.name}!`, 4);
+  Sound.sfx('evolve');
+  monImg(P.id); monImg(P.id, false, true);
+}
+
+function buildOptions() {
+  const opts = [];
+  const owned = new Set(G.moves.map(m => m.key));
+  const ownedTypes = new Set(G.moves.map(m => MOVES[m.key].type));
+  for (const m of G.moves) if (m.lvl >= 6 && !m.evo && G.items[MOVES[m.key].evo.item]) opts.push({ w:1000, kind:'evo', key:m.key });
+  for (const m of G.moves) if (m.lvl < 6) opts.push({ w:10, kind:'up', key:m.key });
+  if (G.moves.length < 6) for (const k in MOVES) if (!owned.has(k)) opts.push({ w:4, kind:'new', key:k });
+  const nItems = Object.keys(G.items).length;
+  for (const k in ITEMS) {
+    const it = ITEMS[k], lv = G.items[k] || 0;
+    if (lv >= it.max || (!lv && nItems >= 6)) continue;
+    if (it.forType && !ownedTypes.has(it.forType)) continue;
+    opts.push({ w: it.forType ? 7 : 5, kind:'item', key:k });
+  }
+  const out = [];
+  while (out.length < 3 && opts.length) {
+    const tot = opts.reduce((s, o) => s + o.w, 0);
+    let r = Math.random()*tot, i = 0;
+    while (r > opts[i].w) { r -= opts[i].w; i++; }
+    out.push(opts.splice(i, 1)[0]);
+  }
+  if (!out.length) out.push({ kind:'heal' }, { kind:'protein' });
+  return out;
+}
+
+const fmt = (k, v) => k === 'cd' ? v.toFixed(2) + 's' : Math.round(v);
+const STAT_LABEL = { dmg:'Damage', count:'Count', cd:'Cooldown', radius:'Area', pierce:'Pierce', width:'Width', dur:'Duration', dirs:'Directions', freeze:'Freeze' };
+function upgradeDesc(key, l) {
+  const a = MOVES[key].stats(l, false), b = MOVES[key].stats(l + 1, false), parts = [];
+  for (const k in STAT_LABEL) if (a[k] !== undefined && Math.abs(a[k] - b[k]) > .001) parts.push(`${STAT_LABEL[k]} ${fmt(k, a[k])} → ${fmt(k, b[k])}`);
+  return parts.join(' · ');
+}
+function moveIcon(key) { const t = MOVES[key].type; return `<div class="ic" style="background:${TC[t]}">${t}</div>`; }
+function itemIcon(k) { return `<div class="ic"><img src="${itemURL(ITEMS[k].sprite)}" alt="" onerror="this.replaceWith('${ITEMS[k].name[0]}')"></div>`; }
+
+function optionHTML(o) {
+  if (o.kind === 'new') { const d = MOVES[o.key]; return [moveIcon(o.key), `${d.name} ${typeBadge(d.type)} <span class="tag new">NEW</span>`, d.desc + (P.types.includes(d.type) ? ' <b>(STAB 1.5×)</b>' : '')]; }
+  if (o.kind === 'up') { const m = G.moves.find(m => m.key === o.key), d = MOVES[o.key]; return [moveIcon(o.key), `${m.evo ? d.evo.name : d.name} <span class="tag">Lv ${m.lvl} → ${m.lvl + 1}</span>`, upgradeDesc(o.key, m.lvl)]; }
+  if (o.kind === 'evo') { const d = MOVES[o.key]; return [moveIcon(o.key), `${d.name} → ${d.evo.name} <span class="tag evo">EVOLVE</span>`, d.evo.desc]; }
+  if (o.kind === 'item') {
+    const it = ITEMS[o.key], lv = G.items[o.key] || 0;
+    let desc = it.desc;
+    if (it.forType) { const mv = MOVES[MOVE_FOR_ITEM[o.key]]; desc = `${cap(it.forType)}-type moves deal +15% damage per level. Lets ${mv.name} evolve into ${mv.evo.name} at Lv 6.`; }
+    return [itemIcon(o.key), `${it.name} ${lv ? `<span class="tag">Lv ${lv} → ${lv + 1}</span>` : '<span class="tag new">NEW</span>'}`, desc];
+  }
+  if (o.kind === 'heal') return [`<div class="ic"><img src="${itemURL('max-potion')}" alt=""></div>`, 'Max Potion', 'Fully restore HP.'];
+  return [`<div class="ic"><img src="${itemURL('protein')}" alt=""></div>`, 'Protein', '+5% damage, permanently.'];
+}
+
+function applyOption(o) {
+  if (o.kind === 'new') addMove(o.key);
+  else if (o.kind === 'up') G.moves.find(m => m.key === o.key).lvl++;
+  else if (o.kind === 'evo') { G.moves.find(m => m.key === o.key).evo = true; G.movesEvolved++; banner(`${MOVES[o.key].name} became ${MOVES[o.key].evo.name}!`); }
+  else if (o.kind === 'item') G.items[o.key] = (G.items[o.key] || 0) + 1;
+  else if (o.kind === 'heal') P.hp = P.maxHp;
+  else if (o.kind === 'protein') G.protein *= 1.05;
+  recalc();
+  renderLoadout();
+}
+
+function openLevelUp() {
+  G.choosing = true;
+  pointer = null;
+  Sound.sfx('levelup');
+  const opts = buildOptions();
+  $('luTitle').textContent = `${P.name} grew to Lv ${G.level - G.pending + 1}!`;
+  const box = $('choices'); box.innerHTML = '';
+  opts.forEach((o, i) => {
+    const [ic, title, desc] = optionHTML(o);
+    const b = document.createElement('button');
+    b.className = 'choice';
+    b.innerHTML = `${ic}<div><div class="t">${title}</div><div class="d">${desc}</div></div><span class="key">${i + 1}</span>`;
+    b.onclick = () => {
+      Sound.sfx('select');
+      applyOption(o);
+      G.pending--;
+      if (G.pending > 0) openLevelUp();
+      else { G.choosing = false; $('levelup').classList.add('hidden'); }
+    };
+    box.appendChild(b);
+  });
+  $('levelup').classList.remove('hidden');
+}
+
+/* =========================================================================
+   UI
+   ========================================================================= */
+function banner(text, secs = 2.6) {
+  const b = $('banner'); b.textContent = text; b.classList.add('show');
+  G.bannerT = secs;
+}
+function renderLoadout() {
+  $('lmoves').innerHTML = G.moves.map(m => {
+    const d = MOVES[m.key];
+    return `<span class="mv${m.evo ? ' evo' : ''}" style="background:${TC[d.type]}">${m.evo ? d.evo.name : d.name} ${m.lvl}</span>`;
+  }).join('');
+  $('litems').innerHTML = Object.entries(G.items).map(([k, l]) => `<div class="it" title="${ITEMS[k].name}"><img src="${itemURL(ITEMS[k].sprite)}" alt=""><span>${l}</span></div>`).join('');
+  $('lallies').innerHTML = G.allies.map(a => `<div class="it" title="Shiny ${a.name}"><img src="${monURL(a.id, true)}" alt=""></div>`).join('');
+}
+let lastPortrait = 0;
+function updateHUD(dt) {
+  $('xpfill').style.width = (G.xp / G.xpNext * 100) + '%';
+  $('lvl').textContent = 'Lv ' + G.level;
+  const hpPct = P.hp / P.maxHp;
+  const f = $('hpfill'); f.style.width = (hpPct*100) + '%';
+  f.style.background = hpPct > .5 ? 'var(--hp-hi)' : hpPct > .2 ? 'var(--hp-mid)' : 'var(--hp-lo)';
+  G.hudT -= dt;
+  if (G.hudT <= 0) {
+    G.hudT = .1;
+    $('hptext').textContent = `${Math.ceil(P.hp)}/${P.maxHp}`;
+    const s = Math.floor(G.t);
+    $('timer').textContent = `${String(Math.floor(s/60)).padStart(2, '0')}:${String(s%60).padStart(2, '0')}`;
+    $('kills').textContent = 'KO ' + G.kills;
+    $('score').textContent = calcScore().toLocaleString();
+    if (lastPortrait !== P.id) { lastPortrait = P.id; $('portrait').src = monURL(P.id); $('pname').innerHTML = `${P.name} ${P.types.map(typeBadge).join('')}`; }
+    if (G.boss) $('bossfill').style.width = Math.max(0, G.boss.hp / G.boss.maxHp * 100) + '%';
+  }
+  if (G.bannerT > 0) { G.bannerT -= dt; if (G.bannerT <= 0) $('banner').classList.remove('show'); }
+}
+
+function statRows() {
+  const s = Math.floor(G.t);
+  return [
+    ['Pokémon', P.name], ['Level', G.level], ['Time', `${Math.floor(s/60)}:${String(s%60).padStart(2, '0')}`], ['KOs', G.kills],
+    ['Moves', G.moves.map(m => m.evo ? MOVES[m.key].evo.name : MOVES[m.key].name).join(', ')],
+    ['Allies', G.allies.map(a => a.name).join(', ') || '—'],
+  ].map(([a, b]) => `<div><span>${a}</span><b>${b}</b></div>`).join('');
+}
+function togglePause() {
+  G.paused = !G.paused;
+  $('pause').classList.toggle('hidden', !G.paused);
+  if (G.paused) {
+    $('pauseStats').innerHTML = statRows();
+    $('volMusic').value = Save.data.settings.music;
+    $('volSfx').value = Save.data.settings.sfx;
+  }
+}
+$('resumeBtn').onclick = togglePause;
+$('quitBtn').onclick = e => { e.preventDefault(); toTitle(); };
+$('againBtn').onclick = toTitle;
+$('volMusic').oninput = e => { Save.data.settings.music = +e.target.value; Sound.applyVolumes(); Save.write(); };
+$('volSfx').oninput = e => { Save.data.settings.sfx = +e.target.value; Sound.applyVolumes(); Save.write(); Sound.sfx('select'); };
+
+const fmtTime = s => `${Math.floor(s/60)}:${String(s%60).padStart(2, '0')}`;
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+function calcScore() {
+  const base = G.kills*10 + Math.floor(G.t)*5 + G.level*100 + G.bosses.length*2500 + (G.won ? 25000 : 0);
+  return Math.round(base * REGIONS[G.region].scoreMul);
+}
+
+// ---- achievements ----
+function runInfo() {
+  return {
+    t:G.t, won:G.won, bosses:G.bosses, starter:G.starterKey, stage:P.stage, movesEvolved:G.movesEvolved, moves:G.moves.length,
+    caught:G.caught, allies:G.allies.length, hit4:G.hit4, kills:G.kills, level:G.level, cleanT:G.t - G.lastHurt, region:G.region,
+    newTypeMove:G.moves.some(m => ['pinMissile', 'darkPulse', 'dragonPulse', 'dazzlingGleam'].includes(m.key)),
+  };
+}
+function checkAch() {
+  const r = runInfo(), S = Save.data;
+  let changed = false;
+  for (const a of ACHIEVEMENTS) {
+    if (S.ach[a.id] || !a.test(r, S)) continue;
+    S.ach[a.id] = Date.now(); changed = true;
+    toast(a);
+  }
+  if (changed) { Save.write(); Sound.sfx('ach'); }
+}
+function toast(a) {
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = `<div class="medal">★</div><div><em>Achievement unlocked</em><b>${a.name}</b><small>${a.desc}</small></div>`;
+  const box = $('toasts');
+  box.appendChild(el);
+  while (box.children.length > 4) box.firstChild.remove();
+  setTimeout(() => el.remove(), 4500);
+}
+function renderAch() {
+  const S = Save.data, n = ACHIEVEMENTS.filter(a => S.ach[a.id]).length;
+  $('achTitle').textContent = `Achievements ${n}/${ACHIEVEMENTS.length}`;
+  $('achList').innerHTML = ACHIEVEMENTS.map(a => `
+    <div class="ach${S.ach[a.id] ? '' : ' locked'}"><div class="medal">${S.ach[a.id] ? '★' : '?'}</div>
+    <div><b>${a.name}</b><small>${a.desc}</small></div></div>`).join('');
+}
+
+// ---- leaderboard ----
+$('lbFilter').innerHTML = '<option value="all">All regions</option>' + REGIONS.map((R, i) => `<option value="${i}">${R.name}</option>`).join('');
+$('lbFilter').onchange = renderLB;
+function renderLB() {
+  const f = $('lbFilter').value;
+  const rows = Save.data.scores.filter(s => f === 'all' || (s.region || 0) === +f).slice(0, 10);
+  $('lbBody').innerHTML = rows.length ? rows.map((s, i) => `
+    <tr class="${G && G.entry === s ? 'me' : ''}">
+      <td><b>${i + 1}</b></td><td>${esc(s.name)}</td><td>${REGIONS[s.region || 0].name}</td>
+      <td><img src="${monURL(s.id)}" alt="">${s.mon}${s.won ? ' ★' : ''}</td>
+      <td><b>${s.score.toLocaleString()}</b></td><td>${fmtTime(s.t)}</td><td>${s.level}</td><td>${s.kills.toLocaleString()}</td>
+    </tr>`).join('') : '<tr><td colspan="8" class="center">No runs yet. Go play!</td></tr>';
+}
+function openScreen(id) { if (id === 'lbScreen') renderLB(); else renderAch(); $(id).classList.remove('hidden'); }
+function closeOverlay() {
+  for (const id of ['lbScreen', 'achScreen']) if (!$(id).classList.contains('hidden')) { $(id).classList.add('hidden'); return true; }
+  return false;
+}
+document.querySelectorAll('[data-close]').forEach(b => b.onclick = () => { b.closest('.screen').classList.add('hidden'); renderTitle(); });
+$('lbBtn').onclick = () => openScreen('lbScreen');
+$('endLbBtn').onclick = () => openScreen('lbScreen');
+$('achBtn').onclick = () => openScreen('achScreen');
+$('sndBtn').onclick = () => toggleMute();
+function toggleMute() {
+  const st = Save.data.settings;
+  st.muted = !st.muted; Save.write();
+  Sound.applyVolumes(); renderTitle();
+  if (G) banner(st.muted ? 'Sound off' : 'Sound on', 1.2);
+}
+$('nameIn').oninput = e => {
+  const name = e.target.value.trim() || 'Trainer';
+  Save.data.settings.name = name;
+  if (G && G.entry) G.entry.name = name;
+  Save.write();
+};
+
+function endGame(won) {
+  if (!G.running) return;
+  G.running = false; G.won = won;
+  const S = Save.data, R = REGIONS[G.region], next = REGIONS[G.region + 1];
+  let unlockedNow = false;
+  if (won) {
+    S.wins[G.starterKey] = true;
+    S.regionWins[R.key] = true;
+    if (next && S.unlocked < next.index) { S.unlocked = next.index; unlockedNow = true; }
+  }
+  checkAch();
+  S.totalKills += G.kills;
+  const score = calcScore();
+  const entry = { name:S.settings.name, starter:G.starterKey, region:G.region, id:P.id, mon:P.name, score, t:Math.floor(G.t), level:G.level, kills:G.kills, won, date:Date.now() };
+  S.scores.push(entry);
+  S.scores.sort((a, b) => b.score - a.score);
+  S.scores = S.scores.slice(0, 100);
+  const rank = S.scores.indexOf(entry) + 1;
+  const best = S.scores.filter(s => s.starter === G.starterKey);
+  Save.write();
+  G.entry = entry;
+  $('endTitle').textContent = won ? `${R.name} Champion!` : 'You blacked out!';
+  $('endSub').textContent = won
+    ? `${P.name} defeated ${R.finalBoss}!` + (unlockedNow ? ` The ${next.name} region is now unlocked!` : !next ? ' You have conquered every region!' : '')
+    : `${P.name} fainted in ${R.name}…`;
+  const nb = $('nextBtn');
+  nb.classList.toggle('hidden', !(won && next));
+  if (next) { nb.textContent = `Travel to ${next.name}`; nb.onclick = () => { Save.data.settings.region = next.index; Save.write(); toTitle(); }; }
+  $('endScore').textContent = score.toLocaleString() + ' pts';
+  $('endRank').textContent = rank === 1 && S.scores.length > 1 ? 'New high score!'
+    : best[0] === entry && best.length > 1 ? `New best for the ${P.starter.stages[0][1]} line! Overall rank #${rank}`
+    : rank ? `Leaderboard rank #${rank}` : 'Not in the top 100 this time.';
+  $('nameIn').value = S.settings.name;
+  $('endStats').innerHTML = statRows();
+  $('levelup').classList.add('hidden');
+  $('end').classList.remove('hidden');
+  Sound.music(won ? 'victory' : 'gameover');
+}
+function toTitle() {
+  G = null; P = null;
+  for (const s of ['end', 'pause', 'levelup', 'hud', 'lbScreen', 'achScreen']) $(s).classList.add('hidden');
+  $('bossbar').classList.add('hidden');
+  $('title').classList.remove('hidden');
+  renderTitle();
+  Sound.music('title', titleRegion);
+}
+
+// ---- title screen: region tabs + that region's starters ----
+let titleRegion = 0;
+function renderTitle() {
+  const S = Save.data;
+  titleRegion = Math.min(S.settings.region || 0, S.unlocked);
+  $('achBtn').textContent = `Achievements ${ACHIEVEMENTS.filter(a => S.ach[a.id]).length}/${ACHIEVEMENTS.length}`;
+  $('sndBtn').textContent = S.settings.muted ? 'Sound: Off' : 'Sound: On';
+  $('regions').innerHTML = REGIONS.map((R, i) => {
+    const locked = i > S.unlocked;
+    return `<button class="rtab${i === titleRegion ? ' on' : ''}" data-r="${i}" ${locked ? 'disabled title="Beat the previous region to unlock"' : ''}>`
+      + `${locked ? '🔒 ' : ''}${i + 1}. ${R.name}${S.regionWins[R.key] ? ' <span class="st">★</span>' : ''}</button>`;
+  }).join('');
+  document.querySelectorAll('.rtab').forEach(b => b.onclick = () => {
+    S.settings.region = +b.dataset.r; Save.write(); renderTitle(); Sound.music('title', titleRegion);
+  });
+  const R = REGIONS[titleRegion], next = REGIONS[titleRegion + 1];
+  $('regionInfo').innerHTML = `<b>${R.name}</b> · Difficulty ${'★'.repeat(titleRegion + 1)} · Score ×${R.scoreMul} · Final boss: <b>${R.finalBoss}</b>`
+    + (next && S.unlocked <= titleRegion ? ` · Win to unlock ${next.name}` : '');
+  $('starters').innerHTML = R.starters.map(k => {
+    const s = STARTERS[k], b = S.scores.find(e => e.starter === k);
+    return `
+    <div class="card" tabindex="0" data-k="${k}">
+      <img src="${monURL(s.stages[0][0])}" alt="${s.stages[0][1]}">
+      <div class="nm px">${s.stages[0][1]}</div>
+      <div class="types">${s.types[0].map(typeBadge).join('')}</div>
+      <small>Starts with <b>${MOVES[s.move].name}</b></small>
+      <small>HP ${s.hp} · Speed ${s.spd}</small>
+      <small class="best">${b ? `Best: ${b.score.toLocaleString()}${S.wins[k] ? ' ★' : ''}` : ''}</small>
+    </div>`;
+  }).join('');
+  document.querySelectorAll('.card').forEach(c => {
+    c.onclick = () => { Sound.init(); newGame(c.dataset.k); };
+    c.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); newGame(c.dataset.k); } };
+  });
+}
+renderTitle();
+Sound.music('title', titleRegion);
+
+/* =========================================================================
+   Rendering
+   ========================================================================= */
+function hash(x, y) {
+  let h = (Math.imul(x, 374761393) + Math.imul(y, 668265263)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return (h ^ (h >>> 16)) >>> 0;
+}
+function drawGround(cx, cy) {
+  const th = REGIONS[G ? G.region : titleRegion].theme;
+  ctx.fillStyle = th.base; ctx.fillRect(0, 0, W, H);
+  const S = 48, x0 = Math.floor(cx/S), y0 = Math.floor(cy/S), x1 = Math.floor((cx + W)/S), y1 = Math.floor((cy + H)/S);
+  const tufts = new Path2D(), tall = [], flowers = [];
+  ctx.fillStyle = th.alt;
+  for (let gy = y0; gy <= y1; gy++) for (let gx = x0; gx <= x1; gx++) {
+    const h = hash(gx, gy), sx = gx*S - cx, sy = gy*S - cy;
+    if ((h & 3) === 0) ctx.fillRect(sx, sy, S, S);
+    const f = (h >>> 4) % 48;
+    if (f < 6) {
+      const tx = sx + ((h >>> 10) % 32) + 8, ty = sy + ((h >>> 16) % 32) + 8;
+      tufts.moveTo(tx - 4, ty); tufts.lineTo(tx - 2, ty - 5); tufts.lineTo(tx, ty);
+      tufts.moveTo(tx, ty); tufts.lineTo(tx + 2, ty - 6); tufts.lineTo(tx + 4, ty);
+    } else if (f < 8) flowers.push([sx + ((h >>> 9) % 36) + 6, sy + ((h >>> 14) % 36) + 6, (h >>> 20) & 1]);
+    else if (f < 10) tall.push([sx, sy]);
+  }
+  for (const [sx, sy] of tall) { // the classic "wild Pokémon live here" tall grass
+    ctx.fillStyle = th.tall; ctx.fillRect(sx, sy, S, S);
+    ctx.fillStyle = th.tallDark;
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
+      const bx = sx + 4 + i*15, by = sy + 6 + j*15;
+      ctx.beginPath(); ctx.moveTo(bx, by + 10); ctx.lineTo(bx + 3, by); ctx.lineTo(bx + 6, by + 6); ctx.lineTo(bx + 9, by); ctx.lineTo(bx + 12, by + 10); ctx.fill();
+    }
+  }
+  ctx.strokeStyle = th.tuft; ctx.lineWidth = 2; ctx.stroke(tufts);
+  for (const [fx, fy, c] of flowers) {
+    ctx.fillStyle = th.fl[c];
+    ctx.fillRect(fx - 4, fy, 3, 3); ctx.fillRect(fx + 1, fy, 3, 3); ctx.fillRect(fx - 1.5, fy - 2.5, 3, 3); ctx.fillRect(fx - 1.5, fy + 2.5, 3, 3);
+    ctx.fillStyle = '#f8d030'; ctx.fillRect(fx - 1, fy + .5, 2, 2);
+  }
+}
+
+function drawMon(id, x, y, r, flip, o = {}) {
+  let im = monImg(id, o.shiny, o.back);
+  // newer Pokémon may be missing back or shiny sprites: fall back to the plain front sprite
+  if (im.failed && (o.back || o.shiny)) { im = monImg(id, o.shiny && !o.back, false); if (im.failed) im = monImg(id); if (o.back) flip = !flip; }
+  const size = r * 3.4;
+  // shadow
+  ctx.fillStyle = 'rgba(0,0,0,.22)';
+  ctx.beginPath(); ctx.ellipse(x, y + r*.7, r*.9, r*.35, 0, 0, Math.PI*2); ctx.fill();
+  if (im.ok) {
+    ctx.save();
+    ctx.translate(x, y);
+    if (flip) ctx.scale(-1, 1);
+    if (o.alpha !== undefined) ctx.globalAlpha = o.alpha;
+    ctx.drawImage(o.white ? im.white : im.img, -size/2, -size/2 - r*.35, size, size);
+    if (o.flash > 0 && !o.white) { ctx.globalAlpha = .75; ctx.drawImage(im.white, -size/2, -size/2 - r*.35, size, size); }
+    ctx.restore();
+  } else {
+    ctx.fillStyle = o.white || o.flash > 0 ? '#fff' : (TC[o.type] || '#999');
+    ctx.beginPath(); ctx.arc(x, y - r*.2, r, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,.4)'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = '#000'; ctx.font = `bold ${r}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText((o.name || '?')[0], x, y - r*.2);
+  }
+}
+
+function drawStar(x, y, r, a) {
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) { const rr = i % 2 ? r*.45 : r, aa = a + i*Math.PI/5; ctx.lineTo(x + Math.cos(aa)*rr, y + Math.sin(aa)*rr); }
+  ctx.closePath(); ctx.fill();
+}
+function drawPokeball(x, y, r) {
+  ctx.fillStyle = '#e83030'; ctx.beginPath(); ctx.arc(x, y, r, Math.PI, 0); ctx.fill();
+  ctx.fillStyle = '#f8f8f8'; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI); ctx.fill();
+  ctx.strokeStyle = '#202020'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.moveTo(x - r, y); ctx.lineTo(x + r, y); ctx.stroke();
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, r*.32, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+}
+
+function render(now) {
+  let cx, cy;
+  if (G) { cx = G.cam.x + (Math.random() - .5)*G.shake; cy = G.cam.y + (Math.random() - .5)*G.shake; }
+  else { cx = now*.03; cy = now*.012; }
+  drawGround(cx, cy);
+  if (!G) return;
+  const T = G.t;
+  ctx.save();
+  ctx.translate(-cx, -cy);
+
+  // ground-level effects
+  for (const z of G.zones) {
+    if (z.kind === 'puddle') {
+      ctx.globalAlpha = Math.min(1, z.life*2) * .55;
+      ctx.fillStyle = '#9040a0'; ctx.beginPath(); ctx.ellipse(z.x, z.y, z.r, z.r*.7, 0, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#c070d0';
+      for (let i = 0; i < 3; i++) { const a = T*2 + i*2.1; ctx.beginPath(); ctx.arc(z.x + Math.cos(a)*z.r*.5, z.y + Math.sin(a)*z.r*.3, 4 + Math.sin(T*5 + i)*2, 0, Math.PI*2); ctx.fill(); }
+      ctx.globalAlpha = 1;
+    } else if (z.kind === 'rock') {
+      const k = 1 - z.delay/z.max;
+      ctx.fillStyle = `rgba(40,30,20,${.15 + .25*k})`;
+      ctx.beginPath(); ctx.ellipse(z.x, z.y, z.r*k, z.r*k*.6, 0, 0, Math.PI*2); ctx.fill();
+    } else if (z.kind === 'quake') {
+      ctx.strokeStyle = `rgba(${z.color || '150,110,50'},${z.life/z.max})`; ctx.lineWidth = 10;
+      ctx.beginPath(); ctx.ellipse(z.x, z.y, z.r, z.r*.8, 0, 0, Math.PI*2); ctx.stroke();
+    }
+  }
+  const psy = G.moves.find(m => m.key === 'psychic');
+  if (psy && psy.radius) {
+    const pulse = 1 + Math.sin(T*4)*.03;
+    const gr = ctx.createRadialGradient(P.x, P.y, psy.radius*.2, P.x, P.y, psy.radius*pulse);
+    gr.addColorStop(0, 'rgba(249,85,135,0)'); gr.addColorStop(.85, psy.evo ? 'rgba(200,60,240,.22)' : 'rgba(249,85,135,.16)'); gr.addColorStop(1, 'rgba(249,85,135,.4)');
+    ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(P.x, P.y, psy.radius*pulse, 0, Math.PI*2); ctx.fill();
+  }
+
+  // gems (Exp. Candy)
+  for (const g of G.gems) {
+    const c = g.v < 3 ? '#58c8f8' : g.v < 10 ? '#68e050' : '#f85878', s = g.v < 3 ? 4 : g.v < 10 ? 5 : 7;
+    ctx.fillStyle = c; ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(g.x, g.y - s); ctx.lineTo(g.x + s, g.y); ctx.lineTo(g.x, g.y + s); ctx.lineTo(g.x - s, g.y); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.fillRect(g.x - 1, g.y - s*.5, 2, 2);
+  }
+  for (const k of G.pickups) {
+    const bob = Math.sin(T*4 + k.x)*3;
+    if (k.kind === 'ball') drawPokeball(k.x, k.y + bob, 10);
+    else {
+      const im = itemImg(k.kind === 'berry' ? 'oran-berry' : 'rare-candy');
+      if (im.ok) ctx.drawImage(im.img, k.x - 15, k.y - 15 + bob, 30, 30);
+      else { ctx.fillStyle = k.kind === 'berry' ? '#4878f0' : '#a050e0'; ctx.beginPath(); ctx.arc(k.x, k.y + bob, 8, 0, Math.PI*2); ctx.fill(); }
+    }
+  }
+
+  // creatures, y-sorted
+  const list = [];
+  const L = cx - 80, R = cx + W + 80, Tp = cy - 80, B = cy + H + 80;
+  for (const e of G.enemies) if (e.x > L && e.x < R && e.y > Tp && e.y < B) list.push(e);
+  list.push(P);
+  for (const a of G.allies) list.push(a);
+  list.sort((a, b) => a.y - b.y);
+  for (const c of list) {
+    if (c === P) {
+      if (P.inv > 0 && P.hurt > 0 && Math.floor(T*30) % 2) continue;
+      if (P.evoT > 0) {
+        const id = Math.floor(P.evoT*10) % 2 ? P.prevId : P.id;
+        drawMon(id, P.x, P.y, P.r, P.dirX > 0, { white:true });
+        ctx.strokeStyle = `rgba(255,255,255,${P.evoT/1.4})`; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(P.x, P.y, (1.4 - P.evoT)*90, 0, Math.PI*2); ctx.stroke();
+      } else {
+        const back = P.up && P.moving;
+        drawMon(P.id, P.x, P.y, P.r, back ? P.dirX < 0 : P.dirX > 0, { back, type:P.types[0], name:P.name, flash:P.hurt });
+      }
+    } else if (c.cd !== undefined && !c.hitT) { // ally
+      drawMon(c.id, c.x, c.y, 13, c.dirX > 0, { shiny:true, type:c.types[0], name:c.name });
+    } else {
+      if (c.elite || c.boss) {
+        ctx.strokeStyle = c.boss ? 'rgba(255,60,60,.6)' : 'rgba(255,230,80,.8)'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.ellipse(c.x, c.y + c.r*.7, c.r*1.05, c.r*.4, 0, 0, Math.PI*2); ctx.stroke();
+      }
+      drawMon(c.id, c.x, c.y, c.r, c.dirX > 0, { shiny:c.shiny, flash:c.flash, type:c.types[0], name:c.name });
+      if (c.freeze > 0) { ctx.fillStyle = 'rgba(150,220,240,.45)'; ctx.beginPath(); ctx.arc(c.x, c.y - c.r*.2, c.r*1.1, 0, Math.PI*2); ctx.fill(); }
+      if (c.shiny && Math.floor(T*6 + c.x) % 4 === 0) { ctx.fillStyle = '#fff8a0'; drawStar(c.x + Math.sin(T*3)*c.r, c.y - c.r*1.3, 5, T); }
+      if (c.elite && c.hp < c.maxHp) {
+        ctx.fillStyle = '#300'; ctx.fillRect(c.x - 18, c.y - c.r*1.6, 36, 4);
+        ctx.fillStyle = '#f8d030'; ctx.fillRect(c.x - 18, c.y - c.r*1.6, 36*c.hp/c.maxHp, 4);
+      }
+    }
+  }
+
+  // razor leaves
+  const rl = G.moves.find(m => m.key === 'razorLeaf');
+  if (rl && rl.leaves) for (const l of rl.leaves) {
+    ctx.save(); ctx.translate(l.x, l.y); ctx.rotate(l.a + T*10);
+    ctx.fillStyle = rl.evo ? '#a8f070' : '#58b838'; ctx.strokeStyle = '#2a6020'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.ellipse(0, 0, rl.evo ? 12 : 9, rl.evo ? 5 : 4, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+
+  // projectiles
+  for (const p of G.projs) {
+    if (p.kind === 'fire') {
+      ctx.fillStyle = 'rgba(255,120,30,.35)'; ctx.beginPath(); ctx.arc(p.x - p.vx*.02, p.y - p.vy*.02, p.r*1.3, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#ff7020'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#ffe060'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r*.5, 0, Math.PI*2); ctx.fill();
+    } else if (p.kind === 'water') {
+      const a = Math.atan2(p.vy, p.vx);
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(a);
+      ctx.fillStyle = 'rgba(80,140,240,.85)'; ctx.beginPath(); ctx.ellipse(0, 0, p.r*2, p.r, 0, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#d0e8ff'; ctx.beginPath(); ctx.ellipse(p.r*.5, -p.r*.3, p.r*.7, p.r*.35, 0, 0, Math.PI*2); ctx.fill();
+      ctx.restore();
+    } else if (p.kind === 'shadow') {
+      const gr = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r);
+      gr.addColorStop(0, '#201030'); gr.addColorStop(.7, '#583880'); gr.addColorStop(1, 'rgba(140,90,200,.2)');
+      ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
+    } else if (p.kind === 'gust') {
+      ctx.strokeStyle = 'rgba(235,240,255,.8)'; ctx.lineWidth = 2.5;
+      for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(p.x, p.y - i*p.r*.35, p.r*(1 - i*.25), T*12 + i, T*12 + i + 4); ctx.stroke(); }
+    } else if (p.kind === 'star') {
+      ctx.fillStyle = '#ffe848'; ctx.strokeStyle = '#c09010'; drawStar(p.x, p.y, p.r, p.age*10); ctx.lineWidth = 1; ctx.stroke();
+    } else if (p.kind === 'needle') {
+      const sp = Math.hypot(p.vx, p.vy) || 1, ux = p.vx/sp, uy = p.vy/sp;
+      ctx.strokeStyle = '#d8e860'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(p.x - ux*12, p.y - uy*12); ctx.lineTo(p.x + ux*4, p.y + uy*4); ctx.stroke();
+      ctx.strokeStyle = '#6a7a10'; ctx.lineWidth = 1; ctx.stroke(); ctx.lineCap = 'butt';
+    } else if (p.kind === 'dragon') {
+      const gr = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r*1.6);
+      gr.addColorStop(0, '#ffffff'); gr.addColorStop(.35, '#a080ff'); gr.addColorStop(.7, '#5030d0'); gr.addColorStop(1, 'rgba(80,40,220,0)');
+      ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(p.x, p.y, p.r*1.6, 0, Math.PI*2); ctx.fill();
+    } else {
+      ctx.fillStyle = TC[p.type]; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r*.45, 0, Math.PI*2); ctx.fill();
+    }
+  }
+  for (const z of G.zones) if (z.kind === 'lob') { // sludge in flight
+    const k = z.t/z.T, x = z.sx + (z.x - z.sx)*k, y = z.sy + (z.y - z.sy)*k - Math.sin(k*Math.PI)*80;
+    ctx.fillStyle = '#a040b0'; ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI*2); ctx.fill();
+  }
+  for (const p of G.eprojs) {
+    ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 2, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = TC[p.type]; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
+  }
+
+  // fx
+  for (const f of G.fx) {
+    const k = f.life/f.max;
+    if (f.kind === 'bolt') {
+      ctx.strokeStyle = `rgba(255,240,120,${k})`; ctx.lineWidth = 4;
+      ctx.beginPath(); f.pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.stroke();
+      ctx.strokeStyle = `rgba(255,255,255,${k})`; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.fillStyle = `rgba(255,240,100,${k*.35})`; ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, Math.PI*2); ctx.fill();
+    } else if (f.kind === 'beam') {
+      ctx.strokeStyle = `rgba(150,220,240,${k*.7})`; ctx.lineWidth = f.w; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(f.x, f.y); ctx.lineTo(f.x2, f.y2); ctx.stroke();
+      ctx.strokeStyle = `rgba(255,255,255,${k})`; ctx.lineWidth = f.w*.35; ctx.stroke(); ctx.lineCap = 'butt';
+    } else if (f.kind === 'arc') {
+      ctx.strokeStyle = `rgba(255,${120 + 100*k},80,${k})`; ctx.lineWidth = 14*k + 2;
+      ctx.beginPath(); ctx.arc(f.x, f.y, f.r*.8, f.a - .95, f.a + .95); ctx.stroke();
+    } else if (f.kind === 'burst') {
+      ctx.globalAlpha = k*.6; ctx.fillStyle = f.color;
+      ctx.beginPath(); ctx.arc(f.x, f.y, f.r*(1.2 - k*.4), 0, Math.PI*2); ctx.fill(); ctx.globalAlpha = 1;
+    } else if (f.kind === 'flash') {
+      ctx.fillStyle = `rgba(255,220,240,${k*.35})`; ctx.beginPath(); ctx.arc(f.x, f.y, f.r*(1.1 - k*.3), 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = `rgba(255,255,255,${k})`;
+      for (let i = 0; i < 10; i++) { const a = i*.628 + k, d = f.r*(1 - k)*.9; drawStar(f.x + Math.cos(a)*d, f.y + Math.sin(a)*d, 6, a); }
+    } else if (f.kind === 'poof') {
+      ctx.fillStyle = `rgba(255,255,255,${k*.7})`;
+      for (let i = 0; i < 5; i++) { const a = i*1.256, d = f.r*(1.5 - k); ctx.beginPath(); ctx.arc(f.x + Math.cos(a)*d, f.y + Math.sin(a)*d, 4*k + 2, 0, Math.PI*2); ctx.fill(); }
+    }
+  }
+
+  // floating text
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+  for (const t of G.texts) {
+    ctx.globalAlpha = Math.min(1, t.life/t.max*2);
+    ctx.font = `${t.size}px "Press Start 2P", monospace`;
+    ctx.strokeStyle = '#000'; ctx.lineWidth = 3; ctx.strokeText(t.txt, t.x, t.y);
+    ctx.fillStyle = t.color; ctx.fillText(t.txt, t.x, t.y);
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+
+  // pickup radius / low HP vignette
+  if (P.hp / P.maxHp < .25) {
+    const v = ctx.createRadialGradient(W/2, H/2, Math.min(W, H)*.3, W/2, H/2, Math.max(W, H)*.7);
+    v.addColorStop(0, 'rgba(200,0,0,0)'); v.addColorStop(1, `rgba(200,0,0,${.25 + Math.sin(T*6)*.08})`);
+    ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+  }
+}
+
+/* =========================================================================
+   Main loop
+   ========================================================================= */
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(.05, (now - last)/1000); last = now;
+  if (G && G.running && !G.paused && !G.choosing) update(dt);
+  render(now);
+  if (G) updateHUD(G.running && !G.paused ? dt : 0);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
