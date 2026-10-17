@@ -107,6 +107,7 @@
   .namerow,.vol{display:flex;gap:10px;justify-content:center;align-items:center;font-size:13px;margin:0 0 14px;flex-wrap:wrap}
   .namerow input,select{font:inherit;padding:6px 8px;border:2px solid var(--line);border-radius:6px}
   .namerow input{width:170px}
+  .namerow input.bad{border-color:#e83838;background:#fff0f0}
   .vol input{width:110px;accent-color:#e3350d}
   .row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
   .row .btn{margin:0}
@@ -794,6 +795,33 @@ const ONLINE = {
   url: '',
   key: '',
 };
+
+/* Trainer-name filter. The word lists are ROT13-encoded so this file isn't full
+   of slurs; supabase-setup.sql runs the exact same check inside the database,
+   so a bad name is rejected even if someone bypasses the game.
+   Steps: lowercase, undo "leetspeak" (5h1t), then
+   1. any token (split on spaces/symbols) that is exactly a short bad word,
+   2. after removing harmless words that contain bad ones (grape, peacock, Cofagrigus...),
+      any bad word anywhere, also with stretched letters squashed (fuuuck). */
+const NameFilter = (() => {
+  const BAD = 'shpx shx spx fuvg ovgpu ogpu phag qvpx pbpx chffl cravf intvan nffubyr nffjvcr qhzonff wnpxnff onfgneq fyhg juber jnax gjng obbo gvgf gvggl cbea ahqr anxrq encr qvyqb ubeal zvys avttre avttn puvax xvxr snt qlxr genaal ergneq anmv uvgyre xxx wvmm betnfz uragnv crqb zbyrfg frk'.split(' ');
+  const SINGLES = 'shpx shx spx fuvg ovgpu ogpu phag qvpx pbpx chfl cravf intvan nfubyr nfjvcr qhzonf wnpxnf onfgneq fyhg juber jnax gjng gvgf gvgl cbea ahqr anxrq encr qvyqb ubeal zvys avtre avtn puvax xvxr snt qlxr genal ergneq anmv uvgyre wvm betnfz uragnv crqb zbyrfg frk'.split(' ');
+  const EXACT = 'nff nefr phz nany nahf fcvp xlf gvg ubr'.split(' ');
+  const OK = 'pbpxngbb crnpbpx unapbpx qvpxraf fphagubecr tencr qencr fpencr gencrmr cnencrg gbecrqb crqbzrgre pbsntevthf funecrqb frkgnag rffrk fhffrk avtrevn avtre'.split(' ');
+  const rot = s => s.replace(/[a-z]/g, c => String.fromCharCode((c.charCodeAt(0) - 84) % 26 + 97));
+  const LEET_FROM = '01!|34@5$7+896', LEET_TO = 'oiiieaassttbgg';
+  const unleet = s => s.replace(/[01!|34@5$7+896]/g, c => LEET_TO[LEET_FROM.indexOf(c)]);
+  function ok(name) {
+    const s = unleet(String(name).toLowerCase());
+    if (s.split(/[^a-z]+/).some(t => t && EXACT.includes(rot(t)))) return false;
+    let r = rot(s.replace(/[^a-z]/g, ''));
+    for (const w of OK) r = r.split(w).join('');
+    if (BAD.some(b => r.includes(b))) return false;
+    const squashed = r.replace(/(.)\1+/g, '$1');
+    return !SINGLES.some(b => squashed.includes(b));
+  }
+  return { ok, safe: name => ok(name) ? name : 'Trainer' };
+})();
 const Online = {
   get on() { return !!(ONLINE.url && ONLINE.key); },
   headers(extra) {
@@ -806,7 +834,12 @@ const Online = {
       score:clamp(e.score, 2e7), t:clamp(e.t, 7200), level:Math.max(1, clamp(e.level, 500)), kills:clamp(e.kills, 2e6), won:!!e.won,
     };
     const r = await fetch(ONLINE.url + '/rest/v1/scores', { method:'POST', headers:this.headers({ Prefer:'return=representation' }), body:JSON.stringify(row), keepalive:true });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
+    if (!r.ok) {
+      const err = new Error('HTTP ' + r.status);
+      const body = await r.json().catch(() => ({}));
+      err.rejectedName = body.code === '23514' && /name/.test(body.message || ''); // database check constraint on the name
+      throw err;
+    }
     return (await r.json())[0];
   },
   async top(region, limit = 25) {
@@ -1930,7 +1963,7 @@ let lbMode = Online.on ? 'world' : 'local', lbReq = 0;
 document.querySelectorAll('[data-lb]').forEach(b => b.onclick = () => { lbMode = b.dataset.lb; renderLB(); });
 const lbRow = (s, i, me) => `
     <tr class="${me ? 'me' : ''}">
-      <td><b>${i + 1}</b></td><td>${esc(s.name)}</td><td>${(REGIONS[s.region || 0] || REGIONS[0]).name}</td>
+      <td><b>${i + 1}</b></td><td>${esc(NameFilter.safe(s.name))}</td><td>${(REGIONS[s.region || 0] || REGIONS[0]).name}</td>
       <td><img src="${monURL(s.id)}" alt="">${esc(s.mon)}${s.won ? ' ★' : ''}</td>
       <td><b>${(+s.score).toLocaleString()}</b></td><td>${fmtTime(s.t)}</td><td>${s.level}</td><td>${(+s.kills).toLocaleString()}</td>
     </tr>`;
@@ -1961,9 +1994,13 @@ async function renderLB() {
 }
 
 // Post the finished run to the world leaderboard (once).
-async function postScore() {
+async function postScore(auto) {
   const e = G && G.entry;
   if (!e || !Online.on || e.onlineId || e.posting) return;
+  if (!NameFilter.ok($('nameIn').value.trim() || 'Trainer') || !NameFilter.ok(e.name)) {
+    if (!auto) { $('postNote').textContent = "That name isn't allowed. Please pick a different one."; return; }
+    e.name = NameFilter.safe(e.name); // leaving the screen with a bad name typed: post under the last good name
+  }
   e.posting = true;
   $('postBtn').disabled = true; $('postNote').textContent = 'Posting…';
   try {
@@ -1976,11 +2013,12 @@ async function postScore() {
     $('postNote').textContent = rank ? `World rank #${rank.toLocaleString()}` : 'Posted to the world leaderboard.';
   } catch (err) {
     $('postBtn').disabled = false;
-    $('postNote').textContent = "Couldn't post your score. Check your connection and try again.";
+    $('postNote').textContent = err.rejectedName ? "The leaderboard didn't accept that name. Please pick a different one."
+      : "Couldn't post your score. Check your connection and try again.";
   }
   e.posting = false;
 }
-$('postBtn').onclick = postScore;
+$('postBtn').onclick = () => postScore(false);
 function openScreen(id) { if (id === 'lbScreen') renderLB(); else renderAch(); $(id).classList.remove('hidden'); }
 function closeOverlay() {
   for (const id of ['lbScreen', 'achScreen']) if (!$(id).classList.contains('hidden')) { $(id).classList.add('hidden'); return true; }
@@ -1999,6 +2037,13 @@ function toggleMute() {
 }
 $('nameIn').oninput = e => {
   const name = e.target.value.trim() || 'Trainer';
+  const okName = NameFilter.ok(name);
+  e.target.classList.toggle('bad', !okName);
+  if (G && G.entry && !G.entry.onlineId) {
+    $('postBtn').disabled = !okName;
+    $('postNote').textContent = okName ? (Online.on ? 'Post your score when you’re ready.' : '') : "That name isn't allowed. Please pick a different one.";
+  }
+  if (!okName) return; // bad names are never saved
   Save.data.settings.name = name;
   if (G && G.entry) G.entry.name = name;
   Save.write();
@@ -2017,7 +2062,7 @@ function endGame(won) {
   checkAch();
   S.totalKills += G.kills;
   const score = calcScore();
-  const entry = { name:S.settings.name, starter:G.starterKey, region:G.region, id:P.id, mon:P.name, score, t:Math.floor(G.t), level:G.level, kills:G.kills, won, date:Date.now() };
+  const entry = { name:NameFilter.safe(S.settings.name), starter:G.starterKey, region:G.region, id:P.id, mon:P.name, score, t:Math.floor(G.t), level:G.level, kills:G.kills, won, date:Date.now() };
   S.scores.push(entry);
   S.scores.sort((a, b) => b.score - a.score);
   S.scores = S.scores.slice(0, 100);
@@ -2046,7 +2091,7 @@ function endGame(won) {
   Sound.music(won ? 'victory' : 'gameover');
 }
 function toTitle() {
-  if (G && G.entry && !G.running) postScore(); // finished runs are posted when you leave the results screen
+  if (G && G.entry && !G.running) postScore(true); // finished runs are posted when you leave the results screen
   G = null; P = null;
   for (const s of ['end', 'pause', 'levelup', 'hud', 'lbScreen', 'achScreen']) $(s).classList.add('hidden');
   $('bossbar').classList.add('hidden');
