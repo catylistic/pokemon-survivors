@@ -2006,6 +2006,12 @@ function makeEnemy(sp, x, y) {
     dmg:sp.dmg*(1 + m*.06)*R.dmgMul, xp:sp.xp*R.xpMul, kx:0, ky:0, flash:0, freeze:0, slowT:0, slowF:0, dirX:-1, hitT:{}, dead:false,
     born:G.t, phase:Math.random()*10,
   };
+  // special behaviors join from the second minute on (the first minute stays simple)
+  e.beh = G.t >= 60 ? behaviorOf(sp) : null; e.bT = 1 + Math.random()*2;
+  if (e.beh === 'healer' && Math.random() > .35) e.beh = null; // only some of them heal, or fights drag on
+  if (e.beh === 'shooter') e.hp *= .8;
+  else if (e.beh === 'bomber') e.hp *= .7;
+  else if (e.beh === 'healer') e.hp *= 1.2;
   e.maxHp = e.hp;
   dexSee(sp);
   return e;
@@ -2067,7 +2073,7 @@ function spawning(dt) {
     G.bossIdx++;
     const [x, y] = spawnRingPos(0);
     const e = makeEnemy({ id:b.id, name:b.name, types:b.types, hp:b.hp, spd:b.spd, dmg:b.dmg, r:b.r, xp:b.xp }, x, y);
-    e.hp = e.maxHp = b.hp * R.hpMul; e.boss = true; e.final = !!b.final; e.atkT = 3; e.atkN = 0; e.speed = b.spd;
+    e.hp = e.maxHp = b.hp * R.hpMul; e.boss = true; e.final = !!b.final; e.atkT = 3; e.atkN = 0; e.speed = b.spd; e.beh = null;
     G.enemies.push(e); G.boss = e;
     $('bossname').textContent = b.name.toUpperCase();
     $('bossbar').classList.remove('hidden');
@@ -2227,6 +2233,79 @@ function updateAllies(dt) {
   });
 }
 
+/* Wild Pokémon behaviors (from the second minute on):
+   shooter: keeps its distance and fires at you (some Psychic/Electric/Fire/Water/Ice/Ghost types)
+   charger: stops, shows a red warning line, then dashes (some Normal/Fighting/Ground/Rock/Steel/Dragon/Dark)
+   bomber:  Self-Destruct Pokémon rush in, flash and explode (hurts you and other wild Pokémon)
+   healer:  stays back and heals the wild Pokémon around it (Clefairy, Blissey, Spritzee, Comfey...) */
+const BOMBERS = new Set([74, 75, 100, 101, 109, 110, 204, 205, 524, 525, 837, 838]);
+const HEALERS = new Set([35, 36, 113, 242, 531, 594, 682, 683, 764, 856, 857, 858]);
+const RANGED_TYPES = ['psychic', 'electric', 'fire', 'water', 'ice', 'ghost'];
+const CHARGE_TYPES = ['normal', 'fighting', 'ground', 'rock', 'steel', 'dragon', 'dark'];
+function behaviorOf(sp) {
+  if (BOMBERS.has(sp.id)) return 'bomber';
+  if (HEALERS.has(sp.id)) return 'healer';
+  const h = (Math.imul(sp.id, 2654435761) >>> 0) % 100; // the same species always behaves the same way
+  if (h < 32 && sp.types.some(t => RANGED_TYPES.includes(t))) return 'shooter';
+  if (h >= 66 && h < 86 && sp.types.some(t => CHARGE_TYPES.includes(t))) return 'charger';
+  return null;
+}
+// returns [speed, dirX, dirY], or null if the Pokémon is gone (exploded)
+function behave(e, dt, sp, dx, dy, d) {
+  switch (e.beh) {
+    case 'shooter':
+      if (d < 220) sp *= -.55; else if (d < 340) sp *= .12; // back off, then hold at range
+      e.bT -= dt;
+      if (e.bT <= 0 && d < 460) {
+        e.bT = 2.4 + Math.random()*1.4; e.flash = .1;
+        eshoot(e, Math.atan2(dy, dx) + (Math.random() - .5)*.15, 230, e.dmg*.55, e.types[0]);
+      }
+      break;
+    case 'charger':
+      if (e.ch === 'wind') { sp = 0; dx = e.cdx; dy = e.cdy; if ((e.bT -= dt) <= 0) { e.ch = 'dash'; e.bT = .5; } }
+      else if (e.ch === 'dash') {
+        sp = e.speed*3.6; dx = e.cdx; dy = e.cdy;
+        if (Math.random() < 30*dt) emit(e.x, e.y + e.r*.6, 1, { color:'rgba(170,150,110,.6)', spread:30, life:.4, size:7, shape:'puff' });
+        if ((e.bT -= dt) <= 0) { e.ch = null; e.bT = 2.5 + Math.random()*2; }
+      } else if ((e.bT -= dt) <= 0 && d < 300 && d > 60) { e.ch = 'wind'; e.bT = .7; e.cdx = dx; e.cdy = dy; }
+      break;
+    case 'bomber':
+      if (e.fuse === undefined && d < 70) e.fuse = .9;
+      if (e.fuse !== undefined) {
+        sp = 0; e.fuse -= dt; e.flash = Math.floor(e.fuse*12) % 2 ? .1 : 0;
+        if (e.fuse <= 0) { explode(e); return null; }
+      } else sp *= 1.15;
+      break;
+    case 'healer':
+      sp *= d < 260 ? .2 : .8;
+      if ((e.bT -= dt) <= 0) { e.bT = 4.5; healAround(e); }
+      break;
+  }
+  if (e.freeze > 0) sp = 0;
+  return [sp, dx, dy];
+}
+function explode(e) {
+  const R = 80;
+  killEnemy(e); // drops its candy like any other KO
+  addFx({ kind:'burst', x:e.x, y:e.y, r:R, color:'#ff9a40', life:.45, max:.45 });
+  emit(e.x, e.y, 24, { color:Math.random() < .5 ? '#ffd040' : '#ff6a10', spread:300, life:.5, size:5, add:true, drag:3 });
+  emit(e.x, e.y, 8, { color:'rgba(80,70,70,.5)', spread:90, life:.8, size:14, shape:'puff', up:30 });
+  G.shake = Math.max(G.shake, 7); Sound.sfx('bossDown');
+  if ((P.x - e.x)**2 + (P.y - e.y)**2 < (R + P.r)**2 && P.z < 18) hurtPlayer(e.dmg*2.2, e.types[0]);
+  hitArea(e.x, e.y, R, 25 + G.level*2, 'normal', { src:'ally', srcTypes:['normal'] }); // and the wild Pokémon around it
+}
+function healAround(e) {
+  query(e.x, e.y, 230, tmpA);
+  let n = 0;
+  for (const o of tmpA) {
+    if (o === e || o.dead || o.boss || o.hp >= o.maxHp || (o.x - e.x)**2 + (o.y - e.y)**2 > 170*170) continue;
+    o.hp = Math.min(o.maxHp, o.hp + o.maxHp*.2); n++;
+    emit(o.x, o.y - o.r*.5, 4, { color:'#80f0a0', spread:40, life:.5, size:3, up:40, add:true });
+  }
+  addFx({ kind:'heal', x:e.x, y:e.y, r:170, life:.6, max:.6 });
+  if (n) e.flash = .1;
+}
+
 function updateEnemies(dt) {
   const far = Math.max(W, H)*.9 + 250;
   for (const e of G.enemies) {
@@ -2244,8 +2323,9 @@ function updateEnemies(dt) {
       const d = Math.hypot(dx, dy) || 1; dx /= d; dy /= d;
       if (!e.boss && d > far) { // wrap stragglers back around to where the player is heading
         const a = Math.atan2(P.fy, P.fx) + (Math.random() - .5)*1.6, r = Math.hypot(W, H)/2 + 40;
-        e.x = P.x + Math.cos(a)*r; e.y = P.y + Math.sin(a)*r; continue;
+        e.x = P.x + Math.cos(a)*r; e.y = P.y + Math.sin(a)*r; e.ch = null; continue;
       }
+      if (e.beh) { const b = behave(e, dt, sp, dx, dy, d); if (!b) continue; [sp, dx, dy] = b; }
     }
     e.x += (dx*sp + e.kx)*dt; e.y += (dy*sp + e.ky)*dt;
     const decay = Math.max(0, 1 - 9*dt); e.kx *= decay; e.ky *= decay;
@@ -2269,22 +2349,30 @@ function updateEnemies(dt) {
   }
 }
 
+/* Boss attacks always flash a warning first (e.tele, ~0.7 s): a growing ring before a ring of
+   shots, aim lines before an aimed burst. The ground slam marks a red circle under you that
+   lands a second later: step out of it. */
 function bossAttack(e, dt) {
-  e.atkT -= dt;
-  if (e.atkT > 0) return;
-  e.atkN++;
   const t = e.types[0], dmg = e.dmg*.6;
-  e.flash = .12; // the boss rears up as it attacks
-  emit(e.x, e.y - e.r*.6, 16, { color:TC[t], spread:220, life:.4, size:4, add:GLOW.has(t), drag:4 });
-  if (e.final) {
-    e.atkT = 2.2;
-    if (e.atkN % 2) ring(e, 18, 170, dmg, t);
-    else { const a = Math.atan2(P.y - e.y, P.x - e.x); for (let i = -2; i <= 2; i++) eshoot(e, a + i*.16, 300, dmg, t); }
-  } else {
-    e.atkT = 2.8 - G.bossIdx*.2;
-    if (e.atkN % 3 === 0) { const a = Math.atan2(P.y - e.y, P.x - e.x); for (let i = -1; i <= 1; i++) eshoot(e, a + i*.2, 260, dmg, t); }
-    else ring(e, 10 + G.bossIdx*2, 160, dmg, t);
+  if (e.tele) {
+    if ((e.tele.t -= dt) > 0) return;
+    const k = e.tele.kind; e.tele = null;
+    e.flash = .12; // the boss rears up as it attacks
+    emit(e.x, e.y - e.r*.6, 16, { color:TC[t], spread:220, life:.4, size:4, add:GLOW.has(t), drag:4 });
+    const a = Math.atan2(P.y - e.y, P.x - e.x);
+    if (k === 'ring') ring(e, e.final ? 18 : 10 + G.bossIdx*2, e.final ? 170 : 160, dmg, t);
+    else if (e.final) for (let i = -2; i <= 2; i++) eshoot(e, a + i*.16, 300, dmg, t);
+    else for (let i = -1; i <= 1; i++) eshoot(e, a + i*.2, 260, dmg, t);
+    return;
   }
+  if ((e.atkT -= dt) > 0) return;
+  e.atkN++;
+  e.atkT = e.final ? 1.5 : 2.3 - G.bossIdx*.2;
+  const kind = (e.final ? ['ring', 'aim', 'slam'] : ['ring', 'aim', 'ring', 'slam'])[e.atkN % (e.final ? 3 : 4)];
+  if (kind === 'slam') {
+    G.zones.push({ kind:'slam', x:P.x, y:P.y, r:95, delay:1.0, max:1.0, dmg:e.dmg*1.2, type:t });
+    e.flash = .12;
+  } else e.tele = { kind, t:.7, max:.7 };
 }
 function ring(e, n, sp, dmg, t) { const o = Math.random()*Math.PI; for (let i = 0; i < n; i++) eshoot(e, o + i*Math.PI*2/n, sp, dmg, t); }
 function eshoot(e, a, sp, dmg, t) { G.eprojs.push({ x:e.x, y:e.y, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp, r:8, dmg, type:t, life:5 }); }
@@ -2379,6 +2467,14 @@ function updateZones(dt) {
         if ((e.x - z.x)**2 + (e.y - z.y)**2 < (z.r + e.r)**2) { z.hit.add(e); damageEnemy(e, z.dmg, z.type); }
       }
       if (z.life <= 0) z.dead = true;
+    } else if (z.kind === 'slam') { // a boss's ground slam landing
+      if ((z.delay -= dt) <= 0) {
+        if ((P.x - z.x)**2 + (P.y - z.y)**2 < (z.r + P.r*.5)**2 && P.z < 18) hurtPlayer(z.dmg, z.type);
+        addFx({ kind:'burst', x:z.x, y:z.y, r:z.r, color:TC[z.type], life:.4, max:.4 });
+        emit(z.x, z.y, 14, { color:'rgba(160,130,90,.7)', spread:200, life:.6, size:9, shape:'puff', drag:4 });
+        G.shake = Math.max(G.shake, 9);
+        z.dead = true;
+      }
     } else if (z.kind === 'lob') {
       z.t += dt;
       if (Math.random() < 25*dt) { const k = z.t/z.T; emit(z.sx + (z.x - z.sx)*k, z.sy + (z.y - z.sy)*k - Math.sin(k*Math.PI)*80, 1, { color:'#b050c0', spread:10, life:.3, size:3, grav:200 }); }
@@ -3300,6 +3396,29 @@ function drawMon(id, x, y, r, flip, o = {}) {
   ctx.restore();
 }
 
+// warnings for charges, fuses and boss attacks (2D)
+function drawWarnings(c, T) {
+  if (c.ch === 'wind') { // a charger lining up its dash
+    const k = 1 - c.bT/.7;
+    ctx.strokeStyle = `rgba(255,50,50,${.25 + .5*k})`; ctx.lineWidth = c.r*.9; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(c.x + c.cdx*270, c.y + c.cdy*270); ctx.stroke(); ctx.lineCap = 'butt';
+  }
+  if (c.fuse !== undefined) { // a bomber about to blow
+    ctx.strokeStyle = `rgba(255,${120 + 120*Math.sin(T*25)},40,.9)`; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(c.x, c.y, 80*(1 - c.fuse/.9*.5), 0, Math.PI*2); ctx.stroke();
+  }
+  if (c.tele) { // a boss winding up
+    const k = 1 - c.tele.t/c.tele.max, col = TC[c.types[0]];
+    ctx.globalAlpha = .4 + .5*k; ctx.strokeStyle = col; ctx.lineWidth = 4;
+    if (c.tele.kind === 'ring') { ctx.beginPath(); ctx.arc(c.x, c.y, c.r*(1 + k*2.2), 0, Math.PI*2); ctx.stroke(); }
+    else {
+      const a = Math.atan2(P.y - c.y, P.x - c.x), n = c.final ? 2 : 1, sp = c.final ? .16 : .2;
+      for (let i = -n; i <= n; i++) { ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(c.x + Math.cos(a + i*sp)*420*k, c.y + Math.sin(a + i*sp)*420*k); ctx.stroke(); }
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
 function drawStar(x, y, r, a) {
   ctx.beginPath();
   for (let i = 0; i < 10; i++) { const rr = i % 2 ? r*.45 : r, aa = a + i*Math.PI/5; ctx.lineTo(x + Math.cos(aa)*rr, y + Math.sin(aa)*rr); }
@@ -3343,6 +3462,11 @@ function render(now) {
     } else if (z.kind === 'quake') {
       ctx.strokeStyle = `rgba(${z.color || '150,110,50'},${z.life/z.max})`; ctx.lineWidth = 10;
       ctx.beginPath(); ctx.ellipse(z.x, z.y, z.r, z.r*.8, 0, 0, Math.PI*2); ctx.stroke();
+    } else if (z.kind === 'slam') { // warning: a red circle that fills up before the slam lands
+      const k = 1 - z.delay/z.max;
+      ctx.fillStyle = `rgba(230,40,40,${.12 + .2*k})`; ctx.beginPath(); ctx.arc(z.x, z.y, z.r*k, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = `rgba(255,60,60,${.5 + .4*Math.sin(T*20)})`; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, Math.PI*2); ctx.stroke();
     }
   }
   const psy = G.moves.find(m => m.key === 'psychic');
@@ -3413,6 +3537,7 @@ function render(now) {
       });
       if (!c.boss && !hovers(c.types)) drawGrassOverFeet(c.x, c.y, c.r);
       if (c.freeze > 0) { ctx.fillStyle = 'rgba(150,220,240,.45)'; ctx.beginPath(); ctx.arc(c.x, c.y - c.r*.2, c.r*1.1, 0, Math.PI*2); ctx.fill(); }
+      drawWarnings(c, T);
       if (c.shiny && Math.floor(T*6 + c.x) % 4 === 0) { ctx.fillStyle = '#fff8a0'; drawStar(c.x + Math.sin(T*3)*c.r, c.y - c.r*1.3, 5, T); }
       if (c.elite && c.hp < c.maxHp) {
         ctx.fillStyle = '#300'; ctx.fillRect(c.x - 18, c.y - c.r*1.6, 36, 4);
@@ -3526,6 +3651,9 @@ function render(now) {
     } else if (f.kind === 'burst') {
       ctx.globalAlpha = k*.6; ctx.fillStyle = f.color;
       ctx.beginPath(); ctx.arc(f.x, f.y, f.r*(1.2 - k*.4), 0, Math.PI*2); ctx.fill(); ctx.globalAlpha = 1;
+    } else if (f.kind === 'heal') {
+      ctx.strokeStyle = `rgba(110,240,150,${k*.8})`; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(f.x, f.y, f.r*(1 - k*.7), 0, Math.PI*2); ctx.stroke();
     } else if (f.kind === 'flash') {
       ctx.fillStyle = `rgba(255,220,240,${k*.35})`; ctx.beginPath(); ctx.arc(f.x, f.y, f.r*(1.1 - k*.3), 0, Math.PI*2); ctx.fill();
       ctx.fillStyle = `rgba(255,255,255,${k})`;
@@ -3903,6 +4031,7 @@ function render3D(now) {
   for (const z of G.zones) {
     if (z.kind === 'puddle') disc(V3.discs, z.x, z.y, z.r, '#9040a0', Math.min(1, z.life*2)*.5);
     else if (z.kind === 'quake') disc(V3.rings, z.x, z.y, z.r, z.type === 'dark' ? '#5a2878' : '#96703a', z.life/z.max, 6);
+    else if (z.kind === 'slam') { const k = 1 - z.delay/z.max; disc(V3.discs, z.x, z.y, z.r*k, '#e62828', .15 + .25*k, 3); disc(V3.rings, z.x, z.y, z.r, '#ff3c3c', .6 + .3*Math.sin(T*20), 4); }
     else if (z.kind === 'rock') {
       const k = 1 - z.delay/z.max, s = z.r*.55;
       disc(V3.discs, z.x, z.y, z.r*k, '#000000', .15 + .25*k);
@@ -3924,6 +4053,7 @@ function render3D(now) {
       const m = disc(V3.arcs, f.x, f.y, f.r*.85, '#ffb060', k, 8); m.rotation.y = -f.a;
     } else if (f.kind === 'burst') disc(V3.discs, f.x, f.y, f.r*(1.2 - k*.4), f.color, k*.55, 4);
     else if (f.kind === 'flash') disc(V3.discs, f.x, f.y, f.r*(1.1 - k*.3), '#ffd8f0', k*.35, 5);
+    else if (f.kind === 'heal') disc(V3.rings, f.x, f.y, f.r*(1 - k*.7), '#6ef096', k*.8, 5);
   }
   // pickups
   for (const k of G.pickups) {
@@ -3932,6 +4062,28 @@ function render3D(now) {
     if (k.kind !== 'ball') { const im = pic3DOf(itemURL(k.kind === 'berry' ? 'oran-berry' : 'rare-candy')); tex = im.state === 'ready' ? texOf(im.canvas) : V3.ballTex; }
     if (s.material.map !== tex) { const had = !!s.material.map; s.material.map = tex; if (!had) s.material.needsUpdate = true; }
     s.position.set(k.x, heightAt(k.x, k.y) + 16 + bob, k.y); s.scale.set(26, 26, 1);
+  }
+  // warnings: charges, fuses, boss wind-ups
+  for (const e of G.enemies) {
+    if (!near(e.x, e.y)) continue;
+    if (e.ch === 'wind') {
+      const b = V3.boxes.get(), a = Math.atan2(e.cdy, e.cdx), k = 1 - e.bT/.7;
+      b.position.set(e.x + e.cdx*135, heightAt(e.x, e.y) + 3, e.y + e.cdy*135); b.scale.set(270, 2, e.r*.9); b.rotation.set(0, -a, 0);
+      b.material.color.set('#ff3232'); b.material.opacity = .25 + .5*k;
+    }
+    if (e.fuse !== undefined) disc(V3.rings, e.x, e.y, 80*(1 - e.fuse/.9*.5), '#ff8a28', .9, 5);
+    if (e.tele) {
+      const k = 1 - e.tele.t/e.tele.max;
+      if (e.tele.kind === 'ring') disc(V3.rings, e.x, e.y, e.r*(1 + k*2.2), TC[e.types[0]], .4 + .5*k, 8);
+      else {
+        const a = Math.atan2(P.y - e.y, P.x - e.x), n = e.final ? 2 : 1, spr = e.final ? .16 : .2, L = 420*k;
+        for (let i = -n; i <= n; i++) {
+          const aa = a + i*spr, b = V3.boxes.get();
+          b.position.set(e.x + Math.cos(aa)*L/2, heightAt(e.x, e.y) + 16, e.y + Math.sin(aa)*L/2); b.scale.set(Math.max(1, L), 2, 4); b.rotation.set(0, -aa, 0);
+          b.material.color.set(TC[e.types[0]]); b.material.opacity = .4 + .5*k;
+        }
+      }
+    }
   }
   for (const p of [V3.mons, V3.glows, V3.orbs, V3.items, V3.discs, V3.rings, V3.arcs, V3.boxes, V3.rocks]) p.end();
 
