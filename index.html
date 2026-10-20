@@ -789,6 +789,20 @@ REGIONS.forEach((R, i) => {
   R.finalBoss = R.bosses[R.bosses.length - 1].name;
 });
 
+/* Roaming legendaries: a rare visitor in about half of all runs (see spawnRoamer). */
+const ROAMERS = {
+  kanto:'144 Articuno ice/flying|145 Zapdos electric/flying|146 Moltres fire/flying',
+  johto:'243 Raikou electric|244 Entei fire|245 Suicune water',
+  hoenn:'380 Latias dragon/psychic|381 Latios dragon/psychic',
+  sinnoh:'480 Uxie psychic|481 Mesprit psychic|482 Azelf psychic',
+  unova:'641 Tornadus flying|642 Thundurus electric/flying|645 Landorus ground/flying',
+  kalos:'719 Diancie rock/fairy|720 Hoopa psychic/ghost|721 Volcanion fire/water',
+  alola:'785 Tapu-Koko electric/fairy|786 Tapu-Lele psychic/fairy|787 Tapu-Bulu grass/fairy|788 Tapu-Fini water/fairy',
+  galar:'894 Regieleki electric|895 Regidrago dragon|896 Glastrier ice|897 Spectrier ghost',
+  paldea:'1001 Wo-Chien dark/grass|1002 Chien-Pao dark/ice|1003 Ting-Lu dark/ground|1004 Chi-Yu dark/fire',
+};
+REGIONS.forEach(R => { R.roamers = ROAMERS[R.key].split('|').map(s => { const m = parseMon(s); m.name = m.name.replace('-', ' '); return m; }); });
+
 /* Pokédex: every Pokémon each region has (its starters and their evolutions, wild Pokémon,
    bosses), with a note on where to find it. */
 const DEX = {}; // id -> { id, name, types, where: [..] }
@@ -805,6 +819,7 @@ REGIONS.forEach(R => {
     add({ id, name, types:STARTERS[k].types[s] }, s ? `${R.name}: evolves from ${STARTERS[k].stages[s - 1][1]} (Lv ${EVO_LEVELS[s - 1]})` : `${R.name}: starter`));
   R.waves.forEach(([a, b, list]) => list.forEach(sp => add(sp, `${R.name}: wild, ${mmss(a*60)}${b < 99 ? '–' + mmss(b*60) : ' onward'}`)));
   R.bosses.forEach(b => add(b, `${R.name}: ${b.final ? 'final boss' : 'boss'} at ${mmss(b.t)}`));
+  R.roamers.forEach(m => add(m, `${R.name}: roaming legendary (rare, 4:00–12:00)`));
 });
 const DEX_TOTAL = Object.keys(DEX).length;
 
@@ -1387,6 +1402,8 @@ const ACHIEVEMENTS = [
   { id:'dexSeen100',  name:'Pokémon Researcher',  desc:'See 100 different Pokémon.',               test:() => Object.keys(Save.data.dex.seen).filter(id => DEX[id]).length >= 100 },
   { id:'dexCaught25', name:'Collector',           desc:'Catch 25 different Pokémon.',              test:() => Object.keys(Save.data.dex.caught).length >= 25 },
   { id:'dexRegion',   name:'Regional Dex Complete', desc:"See every Pokémon in a region's Pokédex.", test:() => REGIONS.some(R => R.dex.every(id => Save.data.dex.seen[id])) },
+  { id:'legend1',  name:'Legend Catcher',         desc:'Catch a roaming legendary with a Master Ball.', test:r => r.legends >= 1 },
+  { id:'legend5',  name:'Legendary Collector',    desc:'Catch 5 different roaming legendaries.',  test:() => REGIONS.reduce((n, R) => n + R.roamers.filter(m => Save.data.dex.caught[m.id]).length, 0) >= 5 },
   { id:'daily1',   name:'Daily Trainer',          desc:'Finish a Daily Challenge.',                test:(r, s) => Object.keys(s.daily || {}).length >= 1 },
   { id:'dailyWin', name:'Challenge Champion',     desc:'Win a Daily Challenge.',                   test:r => r.won && r.daily },
   { id:'mart10',   name:'Valued Customer',        desc:'Buy 10 upgrades at the Poké Mart.',        test:() => MART.reduce((s, m) => s + martLv(m.key), 0) >= 10 },
@@ -1742,6 +1759,7 @@ function newGame(starterKey, daily = null) {
     enemies: [], projs: [], eprojs: [], zones: [], gems: [], pickups: [], fx: [], texts: [], allies: [], trail: [], parts: [],
     moves: [], items: {}, protein: 1, level: 1, xp: 0, xpNext: xpFor(1), pending: 0,
     kills: 0, spawnT: 0, nextElite: 50, bossIdx: 0, swarmIdx: 0, boss: null, shake: 0, seT: 0,
+    roamAt: Math.random() < .5 ? 240 + Math.random()*480 : null, roamer: null, // a roaming legendary visits about half of all runs
     cam: { x: -W/2, y: -H/2 }, trailT: 0, hudT: 0, bannerT: 0,
     starterKey, region: st.region, won: false, hit4: false, lastHurt: 0, bosses: [], caught: 0, movesEvolved: 0, achT: 1,
     daily,
@@ -1808,13 +1826,16 @@ function moveStats(m) {
    Helpers
    ========================================================================= */
 function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = (Math.random()*(i+1))|0; [a[i], a[j]] = [a[j], a[i]]; } return a; }
+// targeting: a roaming legendary in range always comes first, so you can actually wear it down
 function enemiesByDist(x, y, range) {
   const arr = [], r2 = range*range;
-  for (const e of G.enemies) { if (e.dead) continue; const d = (e.x-x)**2 + (e.y-y)**2; if (d < r2) arr.push([d, e]); }
+  for (const e of G.enemies) { if (e.dead) continue; const d = (e.x-x)**2 + (e.y-y)**2; if (d < r2) arr.push([e.roamer ? -1 : d, e]); }
   arr.sort((a, b) => a[0] - b[0]);
   return arr.map(a => a[1]);
 }
 function nearestEnemy(x, y, range) {
+  const ro = G.roamer;
+  if (ro && !ro.dead && (ro.x - x)**2 + (ro.y - y)**2 < range*range) return ro;
   let best = null, bd = range*range;
   for (const e of G.enemies) { if (e.dead) continue; const d = (e.x-x)**2 + (e.y-y)**2; if (d < bd) { bd = d; best = e; } }
   return best;
@@ -1966,6 +1987,15 @@ function hurtPlayer(dmg, type, how = 'contact') {
 }
 
 function killEnemy(e) {
+  if (e.roamer) { // a worn-down legendary doesn't faint: it leaves a Master Ball behind
+    e.dead = true; G.roamer = null;
+    G.pickups.push({ kind:'master', x:e.x, y:e.y, mon:{ id:e.id, name:e.name, types:e.types } });
+    addFx({ kind:'faint', id:e.id, types:e.types, x:e.x, y:e.y, r:e.r, flip:e.dirX > 0, phase:e.phase, life:.8, max:.8 });
+    emit(e.x, e.y - e.r*.4, 40, { color:Math.random() < .5 ? '#d8a0ff' : '#ffffff', spread:260, life:.8, size:4, add:true, drag:2 });
+    dropGem(e.x, e.y, 40);
+    banner(`${e.name} is worn out! Grab the Master Ball!`, 4); Sound.sfx('shiny');
+    return;
+  }
   e.dead = true;
   G.kills++;
   if (ab('moxie')) G.moxie = Math.min(.3, (G.moxie || 0) + .01); // Moxie: each KO adds +1% (fades over time)
@@ -2154,6 +2184,8 @@ function spawning(dt) {
     banner(b.final ? `${b.name.toUpperCase()} has awoken!` : `A wild ${b.name.toUpperCase()} appeared!`);
     Sound.sfx('alarm'); Sound.music(b.final ? 'final' : 'boss', R.index); rumble(500, .8);
   }
+  // a roaming legendary
+  if (G.roamAt !== null && G.t >= G.roamAt) { G.roamAt = null; spawnRoamer(); }
   // swarms (a flock of whatever flying Pokémon are around right now)
   if (SWARMS[G.swarmIdx] !== undefined && G.t >= SWARMS[G.swarmIdx]) {
     G.swarmIdx++;
@@ -2233,7 +2265,7 @@ function updatePlayer(dt) {
   query(P.x, P.y, P.r + 60, tmpC);
   let worst = null;
   for (const e of tmpC) {
-    if (e.dead) continue;
+    if (e.dead || e.roamer) continue; // roaming legendaries don't body-slam you
     const rr = P.r + e.r*.75;
     if ((e.x - P.x)**2 + (e.y - P.y)**2 < rr*rr && (!worst || e.dmg > worst.dmg)) worst = e;
   }
@@ -2398,6 +2430,40 @@ function healAround(e) {
   if (n) e.flash = .1;
 }
 
+// a roaming legendary appears at the edge of the screen, circles, flees, and leaves after 40 s
+function spawnRoamer() {
+  const R = REGIONS[G.region], m = R.roamers[(Math.random()*R.roamers.length)|0], min = G.t/60;
+  const [x, y] = spawnRingPos(60);
+  const e = makeEnemy({ ...m, hp:1, spd:0, dmg:20, r:24, xp:0 }, x, y);
+  e.hp = e.maxHp = 850 * (1 + min*.25) * R.hpMul;
+  e.roamer = true; e.beh = null; e.speed = 210; e.roamT = 40; e.roamA = Math.atan2(y - P.y, x - P.x); e.atkT = 3;
+  e.dmg = 18*R.dmgMul*(1 + min*.06);
+  G.enemies.push(e); G.roamer = e;
+  banner(`A wild ${m.name} is roaming nearby! Wear it down before it flees!`, 4.5);
+  Sound.sfx('alarm'); Stats.event(`legend/${m.id}`);
+}
+function roam(e, dt, d) {
+  e.roamT -= dt; e.flash -= dt;
+  if (e.roamT <= 0) { // it got away
+    e.dead = true; G.roamer = null;
+    emit(e.x, e.y, 20, { color:'rgba(255,255,255,.8)', spread:160, life:.5, size:6, shape:'puff' });
+    banner(`${e.name} fled...`); return;
+  }
+  // circle the player at a distance; dart away when you get close
+  // every 7s it swoops in close for 2s (so short-range moves and auras get a chance)
+  e.roamA += dt*.5; e.swoopT = ((e.swoopT ?? 5) + dt) % 7;
+  const want = e.swoopT > 5 ? 70 : d < 110 ? 300 : 220;
+  const tx = P.x + Math.cos(e.roamA)*want, ty = P.y + Math.sin(e.roamA)*want;
+  const dx = tx - e.x, dy = ty - e.y, l = Math.hypot(dx, dy) || 1;
+  let sp = Math.min(e.speed*(e.freeze > 0 ? 0 : e.slowT > 0 ? 1 - e.slowF : 1), l/dt);
+  if (e.slowT > 0) e.slowT -= dt; if (e.freeze > 0) e.freeze -= dt;
+  e.x += dx/l*sp*dt + e.kx*dt; e.y += dy/l*sp*dt + e.ky*dt; e.kx *= .9; e.ky *= .9;
+  if (Math.abs(dx) > 1) e.dirX = dx;
+  if (Math.random() < 10*dt) emit(e.x, e.y + e.r*.5, 1, { color:TC[e.types[0]], spread:30, life:.5, size:4, add:GLOW.has(e.types[0]) });
+  // defends itself with a ring of shots now and then
+  if ((e.atkT -= dt) <= 0) { e.atkT = 3.2; ring(e, 10, 170, e.dmg*.6, e.types[0]); e.flash = .12; }
+}
+
 function updateEnemies(dt) {
   const far = Math.max(W, H)*.9 + 250;
   for (const e of G.enemies) {
@@ -2413,6 +2479,7 @@ function updateEnemies(dt) {
     } else {
       dx = P.x - e.x; dy = P.y - e.y;
       const d = Math.hypot(dx, dy) || 1; dx /= d; dy /= d;
+      if (e.roamer) { roam(e, dt, d); continue; }
       if (!e.boss && d > far) { // wrap stragglers back around to where the player is heading
         const a = Math.atan2(P.fy, P.fx) + (Math.random() - .5)*1.6, r = Math.hypot(W, H)/2 + 40;
         e.x = P.x + Math.cos(a)*r; e.y = P.y + Math.sin(a)*r; e.ch = null; continue;
@@ -2612,12 +2679,14 @@ function collect(k) {
   } else if (k.kind === 'candy') {
     banner('Got a bag of Rare Candies!');
     for (let i = 0; i < 3; i++) gainXp(G.xpNext - G.xp + .01);
-  } else if (k.kind === 'ball') {
+  } else if (k.kind === 'ball' || k.kind === 'master') {
+    const mon = k.kind === 'master' ? { ...k.mon, legendary:true } : k.mon;
     if (G.allies.length < MAX_ALLIES) {
-      G.allies.push(newAlly(k.mon, k.x, k.y));
-      banner(`Gotcha! Shiny ${k.mon.name} was caught!`);
+      G.allies.push(newAlly(mon, k.x, k.y));
+      banner(mon.legendary ? `Gotcha! The legendary ${mon.name} joined your party!` : `Gotcha! Shiny ${mon.name} was caught!`, mon.legendary ? 4 : 2.6);
       renderLoadout();
-    } else openSwap(k.mon);
+    } else openSwap(mon);
+    if (mon.legendary) G.legendsCaught = (G.legendsCaught || 0) + 1;
   }
 }
 
@@ -2625,7 +2694,8 @@ function collect(k) {
    the game so you can swap someone out, or keep your party and let the new one go. */
 const MAX_ALLIES = 5;
 function newAlly(mon, x, y) {
-  const ally = { ...mon, x, y, cd:.5, dirX:1, level:G.level, stage:0, evoT:0 };
+  const ally = { ...mon, x, y, cd:.5, dirX:1, level:G.level, stage:0, evoT:0, shiny:!mon.legendary };
+  if (mon.legendary) ally.stage = 2; // legendaries arrive at full power
   dexCatch(mon);
   prepareAllyEvolution(ally);
   G.caught++; Sound.sfx('catch');
@@ -2634,14 +2704,14 @@ function newAlly(mon, x, y) {
 function openSwap(mon) {
   G.swapping = true; pointer = null; stick = null;
   const badges = types => types.map(typeBadge).join('');
-  $('swapNew').innerHTML = `<div class="ic"><img src="${monURL(mon.id, true)}" alt=""></div>
-    <div><div class="t">✨ ${esc(mon.name)} <span class="tag new">NEW</span> <span class="tag">Lv ${G.level}</span> ${badges(mon.types)}</div>
+  $('swapNew').innerHTML = `<div class="ic"><img src="${monURL(mon.id, !mon.legendary)}" alt=""></div>
+    <div><div class="t">${mon.legendary ? '★' : '✨'} ${esc(mon.name)} <span class="tag new">${mon.legendary ? 'LEGENDARY' : 'NEW'}</span> <span class="tag">Lv ${G.level}</span> ${badges(mon.types)}</div>
     <div class="d">Wants to join your party.</div></div>`;
   const box = $('swapList'); box.innerHTML = '';
   G.allies.forEach((a, i) => {
     const b = document.createElement('button');
     b.className = 'choice';
-    b.innerHTML = `<div class="ic"><img src="${monURL(a.id, true)}" alt=""></div>
+    b.innerHTML = `<div class="ic"><img src="${monURL(a.id, a.shiny !== false)}" alt=""></div>
       <div><div class="t">${esc(a.name)} <span class="tag">Lv ${a.level}</span> ${badges(a.types)}</div>
       <div class="d">${a.next ? `Evolves into ${esc(a.next.name)} at Lv ${a.next.at}` : a.stage ? 'Fully evolved' : 'Swap this one out'}</div></div>
       <span class="key">${i + 1}</span>`;
@@ -2649,7 +2719,7 @@ function openSwap(mon) {
       const old = G.allies[i];
       G.allies[i] = newAlly(mon, old.x, old.y); // the newcomer takes its place in line
       emit(old.x, old.y - 10, 14, { color:'rgba(255,255,255,.8)', spread:120, life:.5, size:4 });
-      banner(`Bye, ${old.name}! Gotcha! Shiny ${mon.name} joined the party!`, 3);
+      banner(`Bye, ${old.name}! Gotcha! ${mon.legendary ? 'The legendary' : 'Shiny'} ${mon.name} joined the party!`, 3);
       closeSwap();
     };
     box.appendChild(b);
@@ -2803,7 +2873,7 @@ function renderLoadout() {
     return `<span class="mv${m.evo ? ' evo' : ''}" style="background:${TC[d.type]}">${m.evo ? d.evo.name : d.name} ${m.lvl}</span>`;
   }).join('');
   $('litems').innerHTML = Object.entries(G.items).map(([k, l]) => `<div class="it" title="${ITEMS[k].name}"><img src="${itemURL(ITEMS[k].sprite)}" alt=""><span>${l}</span></div>`).join('');
-  $('lallies').innerHTML = G.allies.map(a => `<div class="it" title="Shiny ${esc(a.name)}, Lv ${a.level}${a.next ? ` (evolves at Lv ${a.next.at})` : ''}"><img src="${monURL(a.id, true)}" alt=""><span>${a.level}</span></div>`).join('');
+  $('lallies').innerHTML = G.allies.map(a => `<div class="it" title="${a.legendary ? 'Legendary' : 'Shiny'} ${esc(a.name)}, Lv ${a.level}${a.next ? ` (evolves at Lv ${a.next.at})` : ''}"${a.legendary ? ' style="border-color:#b07800"' : ''}><img src="${monURL(a.id, a.shiny !== false)}" alt=""><span>${a.level}</span></div>`).join('');
 }
 let lastPortrait = 0;
 function updateHUD(dt) {
@@ -2872,7 +2942,7 @@ function runInfo() {
   return {
     t:G.t, won:G.won, bosses:G.bosses, starter:G.starterKey, stage:P.stage, movesEvolved:G.movesEvolved, moves:G.moves.length,
     caught:G.caught, allies:G.allies.length, hit4:G.hit4, kills:G.kills, level:G.level, cleanT:G.t - G.lastHurt, region:G.region,
-    shiny:!!P.shiny, allyEvolved:G.allyEvolved || 0, daily:!!G.daily,
+    shiny:!!P.shiny, allyEvolved:G.allyEvolved || 0, daily:!!G.daily, legends:G.legendsCaught || 0,
     newTypeMove:G.moves.some(m => ['pinMissile', 'darkPulse', 'dragonPulse', 'dazzlingGleam', 'gyroBall'].includes(m.key)),
   };
 }
@@ -3517,7 +3587,18 @@ function drawStar(x, y, r, a) {
   for (let i = 0; i < 10; i++) { const rr = i % 2 ? r*.45 : r, aa = a + i*Math.PI/5; ctx.lineTo(x + Math.cos(aa)*rr, y + Math.sin(aa)*rr); }
   ctx.closePath(); ctx.fill();
 }
-function drawPokeball(x, y, r) {
+function drawPokeball(x, y, r, master) {
+  if (master) { // a purple Master Ball with its pink dots and "M"
+    ctx.fillStyle = 'rgba(200,140,255,.35)'; ctx.beginPath(); ctx.arc(x, y, r*1.8, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#7a3cc8'; ctx.beginPath(); ctx.arc(x, y, r, Math.PI, 0); ctx.fill();
+    ctx.fillStyle = '#f8f8f8'; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI); ctx.fill();
+    ctx.fillStyle = '#ff7ac8'; ctx.beginPath(); ctx.arc(x - r*.5, y - r*.45, r*.2, 0, Math.PI*2); ctx.arc(x + r*.5, y - r*.45, r*.2, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = `bold ${Math.round(r*.6)}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('M', x, y - r*.45);
+    ctx.strokeStyle = '#202020'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.moveTo(x - r, y); ctx.lineTo(x + r, y); ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, r*.32, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    return;
+  }
   ctx.fillStyle = '#e83030'; ctx.beginPath(); ctx.arc(x, y, r, Math.PI, 0); ctx.fill();
   ctx.fillStyle = '#f8f8f8'; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI); ctx.fill();
   ctx.strokeStyle = '#202020'; ctx.lineWidth = 2;
@@ -3579,7 +3660,7 @@ function render(now) {
   }
   for (const k of G.pickups) {
     const bob = Math.sin(T*4 + k.x)*3;
-    if (k.kind === 'ball') drawPokeball(k.x, k.y + bob, 10);
+    if (k.kind === 'ball' || k.kind === 'master') drawPokeball(k.x, k.y + bob, k.kind === 'master' ? 13 : 10, k.kind === 'master');
     else {
       const im = itemImg(k.kind === 'berry' ? 'oran-berry' : 'rare-candy');
       if (im.ok) ctx.drawImage(im.img, k.x - 15, k.y - 15 + bob, 30, 30);
@@ -3614,12 +3695,12 @@ function render(now) {
       if (!hovers(P.types)) drawGrassOverFeet(P.x, P.y, P.r);
     } else if (c.cd !== undefined && !c.hitT) { // ally
       const ar = allyRadius(c);
-      if (c.evoT > 0) drawMon(Math.floor(c.evoT*10) % 2 ? c.prevId : c.id, c.x, c.y, ar, c.dirX > 0, { shiny:true, white:true, t:T, scale:1 + Math.sin(T*30)*.05 });
-      else drawMon(c.id, c.x, c.y, ar, c.dirX > 0, { shiny:true, t:T + c.x*.001, moving:true, rate:1.5, hover:hovers(c.types), type:c.types[0], name:c.name });
+      if (c.evoT > 0) drawMon(Math.floor(c.evoT*10) % 2 ? c.prevId : c.id, c.x, c.y, ar, c.dirX > 0, { shiny:c.shiny !== false, white:true, t:T, scale:1 + Math.sin(T*30)*.05 });
+      else drawMon(c.id, c.x, c.y, ar, c.dirX > 0, { shiny:c.shiny !== false, t:T + c.x*.001, moving:true, rate:1.5, hover:hovers(c.types), type:c.types[0], name:c.name });
       if (!hovers(c.types)) drawGrassOverFeet(c.x, c.y, ar);
     } else {
-      if (c.elite || c.boss) {
-        ctx.strokeStyle = c.boss ? 'rgba(255,60,60,.6)' : 'rgba(255,230,80,.8)'; ctx.lineWidth = 2;
+      if (c.elite || c.boss || c.roamer) {
+        ctx.strokeStyle = c.boss ? 'rgba(255,60,60,.6)' : c.roamer ? 'rgba(190,120,255,.9)' : 'rgba(255,230,80,.8)'; ctx.lineWidth = c.roamer ? 3 : 2;
         ctx.beginPath(); ctx.ellipse(c.x, c.y + c.r*.7, c.r*1.05, c.r*.4, 0, 0, Math.PI*2); ctx.stroke();
       }
       const age = T - (c.born ?? -9);
@@ -3635,6 +3716,14 @@ function render(now) {
       if (c.elite && c.hp < c.maxHp) {
         ctx.fillStyle = '#300'; ctx.fillRect(c.x - 18, c.y - c.r*1.6, 36, 4);
         ctx.fillStyle = '#f8d030'; ctx.fillRect(c.x - 18, c.y - c.r*1.6, 36*c.hp/c.maxHp, 4);
+      }
+      if (c.roamer) { // name, HP and time left
+        const y0 = c.y - c.r*2.2;
+        ctx.fillStyle = '#200830'; ctx.fillRect(c.x - 30, y0, 60, 6);
+        ctx.fillStyle = '#c080ff'; ctx.fillRect(c.x - 30, y0, 60*Math.max(0, c.hp/c.maxHp), 6);
+        ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.fillRect(c.x - 30, y0 + 7, 60*Math.max(0, c.roamT/40), 2);
+        ctx.font = '8px "Press Start 2P", monospace'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000';
+        ctx.strokeText(c.name, c.x, y0 - 7); ctx.fillStyle = '#e8c8ff'; ctx.fillText(c.name, c.x, y0 - 7);
       }
     }
   }
@@ -3788,6 +3877,25 @@ function drawOverlay(cx, cy, rdt) {
     ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
   }
   drawWeather(cx, cy, G.paused || G.choosing ? 0 : rdt);
+  // an arrow at the screen edge pointing to a roaming legendary (or its Master Ball)
+  const target = G.roamer || G.pickups.find(k => k.kind === 'master');
+  if (target) {
+    let sx, sy, on;
+    if (V3.on && V3.camera) { const v = (V3.v2 || (V3.v2 = new V3.T.Vector3())).set(target.x, heightAt(target.x, target.y) + 20, target.y).project(V3.camera); sx = (v.x + 1)/2*W; sy = (1 - v.y)/2*H; on = v.z < 1 && sx > 0 && sx < W && sy > 0 && sy < H; if (v.z > 1) { sx = W - sx; sy = H - sy; } }
+    else { sx = target.x - cx; sy = target.y - cy; on = sx > 0 && sx < W && sy > 0 && sy < H; }
+    if (!on) {
+      const a = Math.atan2(sy - H/2, sx - W/2), m = 34;
+      const ex = Math.max(m, Math.min(W - m, W/2 + Math.cos(a)*W)), ey = Math.max(m + 40, Math.min(H - m, H/2 + Math.sin(a)*H));
+      const pulse = 1 + Math.sin(T*8)*.12;
+      ctx.save(); ctx.translate(ex, ey); ctx.rotate(a);
+      ctx.fillStyle = '#b070ff'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(18*pulse, 0); ctx.lineTo(-10, -12*pulse); ctx.lineTo(-10, 12*pulse); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.restore();
+      ctx.font = '8px "Press Start 2P", monospace'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000';
+      const label = G.roamer ? G.roamer.name : 'Master Ball';
+      ctx.strokeText(label, ex - Math.cos(a)*30, ey - Math.sin(a)*24); ctx.fillStyle = '#f0e0ff'; ctx.fillText(label, ex - Math.cos(a)*30, ey - Math.sin(a)*24);
+    }
+  }
   if (stick) {
     const dx = stick.x - stick.ox, dy = stick.y - stick.oy, d = Math.hypot(dx, dy), k = d > STICK_R ? STICK_R/d : 1;
     ctx.fillStyle = 'rgba(255,255,255,.18)'; ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 3;
@@ -3920,6 +4028,12 @@ function init3D() {
   g.strokeStyle = '#202020'; g.lineWidth = 2; g.beginPath(); g.arc(12, 12, 10, 0, Math.PI*2); g.moveTo(2, 12); g.lineTo(22, 12); g.stroke();
   g.fillStyle = '#fff'; g.beginPath(); g.arc(12, 12, 3.4, 0, Math.PI*2); g.fill(); g.stroke();
   V3.ballTex = canvasTex(ball);
+  const mb = document.createElement('canvas'); mb.width = mb.height = 24; g = mb.getContext('2d');
+  g.fillStyle = '#7a3cc8'; g.beginPath(); g.arc(12, 12, 10, Math.PI, 0); g.fill(); g.fillStyle = '#f8f8f8'; g.beginPath(); g.arc(12, 12, 10, 0, Math.PI); g.fill();
+  g.fillStyle = '#ff7ac8'; g.beginPath(); g.arc(7, 7, 2, 0, Math.PI*2); g.arc(17, 7, 2, 0, Math.PI*2); g.fill();
+  g.strokeStyle = '#202020'; g.lineWidth = 2; g.beginPath(); g.arc(12, 12, 10, 0, Math.PI*2); g.moveTo(2, 12); g.lineTo(22, 12); g.stroke();
+  g.fillStyle = '#fff'; g.beginPath(); g.arc(12, 12, 3.4, 0, Math.PI*2); g.fill(); g.stroke();
+  V3.masterTex = canvasTex(mb);
 
   // pools of reusable objects
   V3.mons = makePool(() => { const s = new T3.Sprite(new T3.SpriteMaterial({ alphaTest:.5 })); s.center.set(.5, 0); return s; });
@@ -4089,8 +4203,8 @@ function render3D(now) {
   }
   for (const a of G.allies) {
     const ar = allyRadius(a), tp = G.trail[0] || [P.x, P.y];
-    if (a.evoT > 0) placeMon(Math.floor(a.evoT*10) % 2 ? a.prevId : a.id, a.x, a.y, ar, true, { shiny:true, white:true, t:T });
-    else placeMon(a.id, a.x, a.y, ar, rightOf(tp[0] - a.x, tp[1] - a.y), { shiny:true, t:T + a.x*.001, moving:true, rate:1.5, hover:hovers(a.types) });
+    if (a.evoT > 0) placeMon(Math.floor(a.evoT*10) % 2 ? a.prevId : a.id, a.x, a.y, ar, true, { shiny:a.shiny !== false, white:true, t:T });
+    else placeMon(a.id, a.x, a.y, ar, rightOf(tp[0] - a.x, tp[1] - a.y), { shiny:a.shiny !== false, t:T + a.x*.001, moving:true, rate:1.5, hover:hovers(a.types) });
   }
   const frozen = new T3.Color(.6, .9, 1);
   for (const e of G.enemies) {
@@ -4151,8 +4265,8 @@ function render3D(now) {
   // pickups
   for (const k of G.pickups) {
     const s = V3.items.get(), bob = Math.sin(T*4 + k.x)*3;
-    let tex = V3.ballTex;
-    if (k.kind !== 'ball') { const im = pic3DOf(itemURL(k.kind === 'berry' ? 'oran-berry' : 'rare-candy')); tex = im.state === 'ready' ? texOf(im.canvas) : V3.ballTex; }
+    let tex = k.kind === 'master' ? V3.masterTex : V3.ballTex;
+    if (k.kind !== 'ball' && k.kind !== 'master') { const im = pic3DOf(itemURL(k.kind === 'berry' ? 'oran-berry' : 'rare-candy')); tex = im.state === 'ready' ? texOf(im.canvas) : V3.ballTex; }
     if (s.material.map !== tex) { const had = !!s.material.map; s.material.map = tex; if (!had) s.material.needsUpdate = true; }
     s.position.set(k.x, heightAt(k.x, k.y) + 16 + bob, k.y); s.scale.set(26, 26, 1);
   }
