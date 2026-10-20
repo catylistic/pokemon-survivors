@@ -84,6 +84,7 @@
   .btn2:active{transform:translateY(2px);box-shadow:0 1px 0 #17457a}
   .btn2.ghost{background:#fff;color:var(--ink);border-color:var(--line);box-shadow:0 3px 0 var(--line)}
   .card .best{font-size:11px;color:#b07800;font-weight:700;min-height:14px}
+  .card .ability{font-size:11px;color:#2a5a8a;background:#eef4fb;border-radius:6px;padding:3px 6px;line-height:1.3}
   #pauseBtn{position:absolute;right:12px;top:62px;pointer-events:auto;width:40px;height:36px;font-size:11px;background:var(--paper);color:var(--ink);border:3px solid var(--line);border-radius:8px;cursor:pointer;box-shadow:0 3px 0 rgba(0,0,0,.3)}
   .padfocus{outline:4px solid #e3350d!important;outline-offset:3px}
   #jumpBtn{position:absolute;right:22px;bottom:90px;pointer-events:auto;width:84px;height:84px;border-radius:50%;font-size:11px;background:rgba(248,248,240,.85);color:var(--ink);border:4px solid var(--line);box-shadow:0 4px 0 rgba(0,0,0,.3);touch-action:none}
@@ -589,6 +590,52 @@ for (const k in STARTERS) STARTERS[k].region = 0;
   const st = stages.split('|').map(s => s.split(' '));
   STARTERS[key] = { region, stages:st.map(([id, name]) => [+id, name]), types:st.map(s => s[2].split('/')), hp, spd, move };
 });
+
+/* Abilities: one per starter line, based on its real abilities. */
+const ABILITIES = {
+  pinch:       { desc:t => `${cap(t)}-type moves do +50% while your HP is below a third.` },
+  static:      { name:'Static',       desc:() => 'Wild Pokémon that touch you may be paralyzed.' },
+  levitate:    { name:'Levitate',     desc:() => 'Immune to Ground-type attacks.' },
+  synchronize: { name:'Synchronize',  desc:() => 'Wild Pokémon that hit you take psychic damage back.' },
+  guts:        { name:'Guts',         desc:() => '+30% damage while below half HP.' },
+  sturdy:      { name:'Sturdy',       desc:() => 'Survives one knockout blow per run with 1 HP.' },
+  flashFire:   { name:'Flash Fire',   desc:() => 'Immune to Fire attacks, and Fire moves do +20%.' },
+  sheerForce:  { name:'Sheer Force',  desc:() => '+20% damage.' },
+  sandStream:  { name:'Sand Stream',  desc:() => 'A sandstorm hurts nearby wild Pokémon (not Rock, Ground or Steel).' },
+  speedBoost:  { name:'Speed Boost',  desc:() => 'Gets faster as the run goes on (up to +30%).' },
+  damp:        { name:'Damp',         desc:() => "Wild Pokémon can't self-destruct near you." },
+  telepathy:   { name:'Telepathy',    desc:() => 'Dodges 30% of enemy shots.' },
+  shellArmor:  { name:'Shell Armor',  desc:() => '-10% damage taken.' },
+  roughSkin:   { name:'Rough Skin',   desc:() => 'Wild Pokémon that touch you take damage.' },
+  thickFat:    { name:'Thick Fat',    desc:() => 'Half damage from Fire and Ice attacks.' },
+  hustle:      { name:'Hustle',       desc:() => '+25% damage, but moves recharge 10% slower.' },
+  bulletproof: { name:'Bulletproof',  desc:() => 'Half damage from projectiles.' },
+  protean:     { name:'Protean',      desc:() => 'Every move gets the 1.5x same-type bonus.' },
+  libero:      { name:'Libero',       desc:() => 'Every move gets the 1.5x same-type bonus.' },
+  flowerVeil:  { name:'Flower Veil',  desc:() => '-20% damage taken.' },
+  longReach:   { name:'Long Reach',   desc:() => '+15% attack area.' },
+  intimidate:  { name:'Intimidate',   desc:() => 'Wild Pokémon hit you 20% softer.' },
+  grassySurge: { name:'Grassy Surge', desc:() => 'Restores 1.5 HP per second.' },
+  sniper:      { name:'Sniper',       desc:() => 'Critical hits do 3x instead of 2x, and +5% crit chance.' },
+  infiltrator: { name:'Infiltrator',  desc:() => "Your attacks ignore resistances: nothing is 'not very effective'." },
+  moxie:       { name:'Moxie',        desc:() => 'Each KO adds a damage boost that slowly fades (up to +30%).' },
+  chlorophyll: { name:'Chlorophyll',  desc:() => '+15% move speed.' },
+};
+const PINCH_NAMES = { fire:'Blaze', water:'Torrent', grass:'Overgrow', bug:'Swarm' };
+Object.entries({
+  bulbasaur:'chlorophyll', charmander:'pinch', squirtle:'pinch', pichu:'static', gastly:'levitate', abra:'synchronize', machop:'guts', geodude:'sturdy',
+  chikorita:'pinch', cyndaquil:'flashFire', totodile:'sheerForce', larvitar:'sandStream',
+  treecko:'pinch', torchic:'speedBoost', mudkip:'damp', ralts:'telepathy',
+  turtwig:'shellArmor', chimchar:'pinch', piplup:'pinch', gible:'roughSkin',
+  snivy:'pinch', tepig:'thickFat', oshawott:'shellArmor', deino:'hustle',
+  chespin:'bulletproof', fennekin:'pinch', froakie:'protean', flabebe:'flowerVeil',
+  rowlet:'longReach', litten:'intimidate', popplio:'pinch', grubbin:'pinch',
+  grookey:'grassySurge', scorbunny:'libero', sobble:'sniper', dreepy:'infiltrator',
+  sprigatito:'protean', fuecoco:'pinch', quaxly:'moxie', pawmi:'static',
+}).forEach(([k, a]) => { STARTERS[k].ability = a; STARTERS[k].pinchType = a === 'pinch' ? STARTERS[k].types[0][0] : null; });
+const abilityName = st => st.ability === 'pinch' ? PINCH_NAMES[st.pinchType] : ABILITIES[st.ability].name;
+const abilityDesc = st => ABILITIES[st.ability].desc(st.pinchType);
+const ab = k => !!(P && P.starter.ability === k);
 
 /* =========================================================================
    Regions. Each one is a "level": its own starters, wild Pokémon, bosses,
@@ -1734,14 +1781,16 @@ function recalc() {
   const I = k => G.items[k] || 0, M = martLv;
   const fullyEvolved = P.stage >= P.starter.stages.length - 1;
   G.stat = {
-    dmg: (1 + .1*I('muscleBand')) * (1 + .1*P.stage) * G.protein * (1 + .05*M('protein')) * (twist('glass') ? 1.5 : 1),
-    cd: Math.max(.4, (1 - .07*I('quickClaw')) * (1 - .04*M('ppUp'))),
-    area: (1 + .1*I('wideLens')) * (1 + .05*M('calcium')),
-    speed: P.baseSpd * (1 + .08*I('choiceScarf')) * (1 + .05*P.stage) * (1 + .04*M('carbos')) * (twist('hyper') ? 1.3 : 1),
+    dmg: (1 + .1*I('muscleBand')) * (1 + .1*P.stage) * G.protein * (1 + .05*M('protein')) * (twist('glass') ? 1.5 : 1)
+         * (ab('sheerForce') ? 1.2 : ab('hustle') ? 1.25 : 1),
+    cd: Math.max(.4, (1 - .07*I('quickClaw')) * (1 - .04*M('ppUp'))) * (ab('hustle') ? 1.1 : 1),
+    area: (1 + .1*I('wideLens')) * (1 + .05*M('calcium')) * (ab('longReach') ? 1.15 : 1),
+    speed: P.baseSpd * (1 + .08*I('choiceScarf')) * (1 + .05*P.stage) * (1 + .04*M('carbos')) * (twist('hyper') ? 1.3 : 1) * (ab('chlorophyll') ? 1.15 : 1),
     xp: (1 + .12*I('luckyEgg')) * (1 + .08*M('expCandy')) * (twist('candy') ? 1.75 : twist('horde') ? 1.25 : 1),
-    crit: .05 + .07*I('scopeLens') + (twist('lucky') ? .25 : 0),
-    armor: Math.min(.7, 1 - (1 - Math.min(.6, (fullyEvolved ? .05 : .1) * I('eviolite'))) * (1 - .05*M('iron'))),
-    regen: .6*I('leftovers'),
+    crit: .05 + .07*I('scopeLens') + (twist('lucky') ? .25 : 0) + (ab('sniper') ? .05 : 0),
+    armor: Math.min(.75, 1 - (1 - Math.min(.6, (fullyEvolved ? .05 : .1) * I('eviolite'))) * (1 - .05*M('iron'))
+                          * (ab('flowerVeil') ? .8 : ab('shellArmor') ? .9 : 1)),
+    regen: .6*I('leftovers') + (ab('grassySurge') ? 1.5 : 0),
     pickup: 85 * (1 + .3*I('expShare')) * (1 + .15*M('itemfinder')),
   };
 }
@@ -1815,12 +1864,22 @@ const tmpA = [], tmpP = [], tmpS = [], tmpC = [];
    ========================================================================= */
 function damageEnemy(e, base, type, src = 'player', srcTypes = null, kx = 0, ky = 0) {
   if (e.dead) return;
-  const m = eff(type, e.types);
-  const stabTypes = src === 'player' ? P.types : srcTypes;
-  const stab = stabTypes && stabTypes.includes(type) ? 1.5 : 1;
-  const item = src === 'player' ? 1 + .15*(G.items[TYPE_ITEM[type]] || 0) : 1;
+  const mine = src === 'player';
+  let m = eff(type, e.types);
+  if (mine && ab('infiltrator') && m < 1) m = 1; // Infiltrator: no resistances
+  const stabTypes = mine ? P.types : srcTypes;
+  const stab = (mine && (ab('protean') || ab('libero'))) || (stabTypes && stabTypes.includes(type)) ? 1.5 : 1;
+  const item = mine ? 1 + .15*(G.items[TYPE_ITEM[type]] || 0) : 1;
   const crit = Math.random() < G.stat.crit;
-  const d = base * stab * item * m * (crit ? 2 : 1) * (src === 'player' ? G.stat.dmg : 1);
+  let abil = 1;
+  if (mine) {
+    const low = P.hp/P.maxHp;
+    if (P.starter.pinchType === type && low < 1/3) abil *= 1.5; // Blaze / Torrent / Overgrow / Swarm
+    if (ab('guts') && low < .5) abil *= 1.3;
+    if (ab('flashFire') && type === 'fire') abil *= 1.2;
+    if (ab('moxie')) abil *= 1 + (G.moxie || 0);
+  }
+  const d = base * stab * item * m * (crit ? (mine && ab('sniper') ? 3 : 2) : 1) * (mine ? G.stat.dmg : 1) * abil;
   e.hp -= d; e.flash = .1;
   if (G.t - (e.sparkT || -9) > .12) { // impact sparks in the move's type colour (bigger when super effective)
     e.sparkT = G.t;
@@ -1876,25 +1935,40 @@ function shoot(o) {
   G.projs.push(Object.assign({ id: ++G.uid, x:P.x, y:P.y, vx:0, vy:0, r:6, dmg:10, type:'normal', pierce:1, life:2, hit:new Set(), kb:0, kind:'orb', src:'player', srcTypes:null, hitCd:0, age:0 }, o));
 }
 
-function hurtPlayer(dmg, type) {
-  if (P.inv > 0 || P.evoT > 0) return;
+function hurtPlayer(dmg, type, how = 'contact') {
+  if (P.inv > 0 || P.evoT > 0) return 0;
+  // abilities that block or soften certain hits
+  if ((ab('levitate') && type === 'ground') || (ab('flashFire') && type === 'fire')) {
+    if (G.t - (G.immuneT || -9) > 1) { G.immuneT = G.t; addText(P.x, P.y - 26, 'No effect!', '#c8c8d0', 8); }
+    P.inv = .2; return 0;
+  }
+  if (how === 'shot' && ab('telepathy') && Math.random() < .3) { addText(P.x, P.y - 26, 'Dodged!', '#f0a0ff', 8); return 0; }
   const m = Math.max(.5, Math.min(2, eff(type, P.types)));
-  const d = dmg * m * (1 - G.stat.armor);
-  P.hp -= d; P.inv = .35; P.hurt = .2;
+  let d = dmg * m * (1 - G.stat.armor);
+  if (ab('thickFat') && (type === 'fire' || type === 'ice')) d *= .5;
+  if (ab('bulletproof') && how === 'shot') d *= .5;
+  if (ab('intimidate') && how === 'contact') d *= .8;
+  if (ab('sturdy') && !G.sturdyUsed && P.hp - d <= 0 && P.hp > 1) { // Sturdy: hang on with 1 HP, once
+    G.sturdyUsed = true; d = P.hp - 1; P.inv = 1.5;
+    banner(`${P.name} endured the hit with Sturdy!`); Sound.sfx('heal');
+  }
+  P.hp -= d; P.inv = Math.max(P.inv, .35); P.hurt = .2;
   G.lastHurt = G.t; Sound.sfx('hurt'); rumble(120, m > 1 ? .7 : .4);
   addText(P.x, P.y - 26, '-' + Math.round(d), m > 1 ? '#ff6040' : '#ff9090', m > 1 ? 11 : 9);
   if (P.hp <= 0 && G.revives > 0) { // Revive from the Poké Mart
     G.revives--; P.hp = Math.round(P.maxHp*.5); P.inv = 2.5;
     banner(`${P.name} was revived!`); Sound.sfx('heal');
     emit(P.x, P.y - P.r, 36, { color:Math.random() < .5 ? '#fff8a0' : '#ffffff', spread:220, life:.8, size:4, add:true, drag:2 });
-    return;
+    return d;
   }
   if (P.hp <= 0) { P.hp = 0; endGame(false); }
+  return d;
 }
 
 function killEnemy(e) {
   e.dead = true;
   G.kills++;
+  if (ab('moxie')) G.moxie = Math.min(.3, (G.moxie || 0) + .01); // Moxie: each KO adds +1% (fades over time)
   // fainting: flash white, then shrink and sink away in a puff of sparkles
   const fl = e.boss ? 1.2 : .45;
   addFx({ kind:'faint', id:e.id, shiny:e.shiny, types:e.types, x:e.x, y:e.y, r:e.r, flip:e.dirX > 0, phase:e.phase, life:fl, max:fl });
@@ -2143,7 +2217,8 @@ function updatePlayer(dt) {
   }
   const len = Math.hypot(mx, my);
   if (len > .01) {
-    P.x += mx * G.stat.speed * dt; P.y += my * G.stat.speed * dt;
+    const boost = ab('speedBoost') ? 1 + Math.min(.3, G.t/30*.01) : 1; // Speed Boost: +1% every 30 s
+    P.x += mx * G.stat.speed * boost * dt; P.y += my * G.stat.speed * boost * dt;
     P.fx = mx/len; P.fy = my/len;
     if (Math.abs(P.fx) > .2) P.dirX = P.fx;
     P.up = P.fy < -.6;
@@ -2162,7 +2237,24 @@ function updatePlayer(dt) {
     const rr = P.r + e.r*.75;
     if ((e.x - P.x)**2 + (e.y - P.y)**2 < rr*rr && (!worst || e.dmg > worst.dmg)) worst = e;
   }
-  if (worst && P.z < 18) hurtPlayer(worst.dmg, worst.types[0]); // jumping clears wild Pokémon
+  if (worst && P.z < 18) { // jumping clears wild Pokémon
+    const d = hurtPlayer(worst.dmg, worst.types[0], 'contact');
+    if (d > 0 && !worst.boss) { // abilities that punish whoever touched you
+      if (ab('static') && Math.random() < .3) { worst.freeze = Math.max(worst.freeze, 1.5); addText(worst.x, worst.y - worst.r - 6, 'Paralyzed!', '#f7d02c', 8); emit(worst.x, worst.y, 8, { color:'#fff8a0', spread:160, life:.3, size:3, shape:'streak', add:true }); }
+      if (ab('roughSkin')) damageEnemy(worst, 20 + G.level*2, 'dragon', 'ally', ['dragon']);
+      if (ab('synchronize')) damageEnemy(worst, d*.5 + 10 + G.level*2, 'psychic', 'ally', ['psychic']);
+    }
+  }
+  // Moxie fades; Sand Stream rages around you
+  if (G.moxie) G.moxie = Math.max(0, G.moxie - .02*dt);
+  if (ab('sandStream')) {
+    if (Math.random() < 20*dt) { const a = Math.random()*Math.PI*2, r = Math.random()*220; emit(P.x + Math.cos(a)*r, P.y + Math.sin(a)*r, 1, { color:'rgba(210,180,120,.7)', spread:20, vx:120, life:.5, size:3 }); }
+    if ((G.sandT = (G.sandT || 3) - dt) <= 0) {
+      G.sandT = 3;
+      query(P.x, P.y, 280, tmpC);
+      for (const e of tmpC) if (!e.dead && (e.x - P.x)**2 + (e.y - P.y)**2 < 220*220 && !e.types.some(t => t === 'rock' || t === 'ground' || t === 'steel')) damageEnemy(e, 8 + G.level*1.2, 'rock', 'ally', ['rock']);
+    }
+  }
 }
 
 /* Ally evolution. Allies level up with you; their real evolution line comes from PokeAPI.
@@ -2270,7 +2362,7 @@ function behave(e, dt, sp, dx, dy, d) {
       } else if ((e.bT -= dt) <= 0 && d < 300 && d > 60) { e.ch = 'wind'; e.bT = .7; e.cdx = dx; e.cdy = dy; }
       break;
     case 'bomber':
-      if (e.fuse === undefined && d < 70) e.fuse = .9;
+      if (e.fuse === undefined && d < 70 && !ab('damp')) e.fuse = .9; // Damp stops self-destructs
       if (e.fuse !== undefined) {
         sp = 0; e.fuse -= dt; e.flash = Math.floor(e.fuse*12) % 2 ? .1 : 0;
         if (e.fuse <= 0) { explode(e); return null; }
@@ -2291,7 +2383,7 @@ function explode(e) {
   emit(e.x, e.y, 24, { color:Math.random() < .5 ? '#ffd040' : '#ff6a10', spread:300, life:.5, size:5, add:true, drag:3 });
   emit(e.x, e.y, 8, { color:'rgba(80,70,70,.5)', spread:90, life:.8, size:14, shape:'puff', up:30 });
   G.shake = Math.max(G.shake, 7); Sound.sfx('bossDown');
-  if ((P.x - e.x)**2 + (P.y - e.y)**2 < (R + P.r)**2 && P.z < 18) hurtPlayer(e.dmg*2.2, e.types[0]);
+  if ((P.x - e.x)**2 + (P.y - e.y)**2 < (R + P.r)**2 && P.z < 18) hurtPlayer(e.dmg*2.2, e.types[0], 'blast');
   hitArea(e.x, e.y, R, 25 + G.level*2, 'normal', { src:'ally', srcTypes:['normal'] }); // and the wild Pokémon around it
 }
 function healAround(e) {
@@ -2438,7 +2530,7 @@ function updateEProjs(dt) {
     if (Math.random() < 12*dt) emit(p.x, p.y, 1, { color:TC[p.type], spread:15, life:.3, size:4, add:GLOW.has(p.type) });
     if (p.life <= 0) { p.dead = true; continue; }
     const rr = p.r + P.r*.8;
-    if (P.z < 28 && (p.x - P.x)**2 + (p.y - P.y)**2 < rr*rr) { hurtPlayer(p.dmg, p.type); p.dead = true; }
+    if (P.z < 28 && (p.x - P.x)**2 + (p.y - P.y)**2 < rr*rr) { hurtPlayer(p.dmg, p.type, 'shot'); p.dead = true; }
   }
 }
 
@@ -2469,7 +2561,7 @@ function updateZones(dt) {
       if (z.life <= 0) z.dead = true;
     } else if (z.kind === 'slam') { // a boss's ground slam landing
       if ((z.delay -= dt) <= 0) {
-        if ((P.x - z.x)**2 + (P.y - z.y)**2 < (z.r + P.r*.5)**2 && P.z < 18) hurtPlayer(z.dmg, z.type);
+        if ((P.x - z.x)**2 + (P.y - z.y)**2 < (z.r + P.r*.5)**2 && P.z < 18) hurtPlayer(z.dmg, z.type, 'blast');
         addFx({ kind:'burst', x:z.x, y:z.y, r:z.r, color:TC[z.type], life:.4, max:.4 });
         emit(z.x, z.y, 14, { color:'rgba(160,130,90,.7)', spread:200, life:.6, size:9, shape:'puff', drag:4 });
         G.shake = Math.max(G.shake, 9);
@@ -2738,7 +2830,7 @@ function updateHUD(dt) {
 function statRows() {
   const s = Math.floor(G.t);
   return [
-    ['Pokémon', P.name], ['Level', G.level], ['Time', `${Math.floor(s/60)}:${String(s%60).padStart(2, '0')}`], ['KOs', G.kills],
+    ['Pokémon', P.name], ['Ability', abilityName(P.starter)], ['Level', G.level], ['Time', `${Math.floor(s/60)}:${String(s%60).padStart(2, '0')}`], ['KOs', G.kills],
     ['Moves', G.moves.map(m => m.evo ? MOVES[m.key].evo.name : MOVES[m.key].name).join(', ')],
     ['Allies', G.allies.map(a => `${a.name} Lv ${a.level}`).join(', ') || '—'],
   ].map(([a, b]) => `<div><span>${a}</span><b>${b}</b></div>`).join('');
@@ -3126,6 +3218,7 @@ function renderTitle() {
       <div class="types">${s.types[0].map(typeBadge).join('')}</div>
       <small>Starts with <b>${MOVES[s.move].name}</b></small>
       <small>HP ${s.hp} · Speed ${s.spd}</small>
+      <small class="ability" title="${abilityDesc(s)}"><b>${abilityName(s)}</b>: ${abilityDesc(s)}</small>
       <small class="best">${b ? `Best: ${b.score.toLocaleString()}${S.wins[k] ? ' ★' : ''}` : ''}</small>
     </div>`;
   }).join('');
