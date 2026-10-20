@@ -3,6 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#141a2a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Survivors">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <title>Pokémon Survivors</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
@@ -100,7 +108,9 @@
   .ach{display:flex;gap:10px;align-items:center;background:#fff;border:2px solid var(--line);border-radius:8px;padding:8px}
   .ach.locked{opacity:.55;filter:grayscale(1)}
   #achScreen .box,#lbScreen .box{max-width:780px}
-  #syncScreen .box,#setScreen .box{max-width:560px}
+  #syncScreen .box,#setScreen .box,#installScreen .box{max-width:560px}
+  .steps{margin:6px 0 0;padding-left:22px;font-size:14px;line-height:1.7}
+  .steps b{white-space:nowrap}
   .opts label{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:10px 0;border-bottom:1px dashed #c0c8d4;font-size:14px;cursor:pointer}
   .opts small{display:block;font-size:11px;color:#8a94a8}
   .opts input[type=range]{width:min(200px,45vw)}
@@ -198,6 +208,7 @@
       <button class="btn2 ghost" id="sndBtn">Sound: On</button>
       <button class="btn2 ghost" id="viewBtn">View: 2D</button>
       <button class="btn2 ghost" id="setBtn">Settings</button>
+      <button class="btn2 ghost" id="installBtn">Install app</button>
       <button class="btn2" id="syncBtn">Cloud Save</button>
       <button class="btn2" id="martBtn" style="background:#e3350d;border-color:#8a1c06;box-shadow:0 3px 0 #8a1c06">Poké Mart</button>
       <button class="btn2" id="dexBtn" style="background:#c03028;border-color:#701810;box-shadow:0 3px 0 #701810">Pokédex</button>
@@ -322,6 +333,18 @@
       <label><span>3D camera speed</span><input type="range" id="optSens" min="0.3" max="2.5" step="0.1"></label>
       <label><span>Invert 3D camera up/down</span><input type="checkbox" id="optInvert"></label>
     </div>
+    <p class="center" style="margin:14px 0 0"><button class="btn" data-close>Back</button></p>
+  </div>
+</div>
+
+<div id="installScreen" class="screen hidden">
+  <div class="box">
+    <h2 class="px">Install &amp; Offline</h2>
+    <div id="installBody"></div>
+    <h3 class="px" style="font-size:12px;margin:18px 0 6px">Play offline</h3>
+    <p class="sub" style="margin:0 0 8px">The game works without internet once it's loaded. Pokémon you've already met are saved as you play. To have all of them ready (for a flight or a long trip), save them now:</p>
+    <p class="center" style="margin:0"><button class="btn2" id="offlineBtn">Save sprites for offline play</button></p>
+    <p class="sub center" id="offlineNote" style="margin-top:8px"></p>
     <p class="center" style="margin:14px 0 0"><button class="btn" data-close>Back</button></p>
   </div>
 </div>
@@ -1682,7 +1705,7 @@ const Pad = { move:[0, 0], prev:[], navT:0, navHeld:false, gp:null, rumbleT:0 };
 addEventListener('gamepadconnected', e => showNote(`Controller connected: ${e.gamepad.id.split('(')[0].trim() || 'Gamepad'}`));
 addEventListener('gamepaddisconnected', () => showNote('Controller disconnected'));
 function topScreen() {
-  for (const id of ['setScreen', 'dexScreen', 'martScreen', 'syncScreen', 'lbScreen', 'achScreen', 'swap', 'levelup', 'pause', 'end', 'title']) { const el = $(id); if (!el.classList.contains('hidden')) return el; }
+  for (const id of ['setScreen', 'installScreen', 'dexScreen', 'martScreen', 'syncScreen', 'lbScreen', 'achScreen', 'swap', 'levelup', 'pause', 'end', 'title']) { const el = $(id); if (!el.classList.contains('hidden')) return el; }
   return null;
 }
 function focusables(scr) {
@@ -2965,6 +2988,55 @@ $('optInvert').onchange = e => setOpt('invertY', e.target.checked);
 $('setBtn').onclick = openSettings;
 $('setBtnPause').onclick = openSettings;
 
+// ---- install to home screen + offline play (sw.js does the caching) ----
+const Install = {
+  prompt: null,
+  ios: /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1),
+  get installed() { return matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches || navigator.standalone === true; },
+};
+if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(e => console.warn('offline mode unavailable', e));
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); Install.prompt = e; });
+addEventListener('appinstalled', () => { Install.prompt = null; Stats.event('installed'); showNote('Installed! Look for Survivors on your home screen.'); renderInstall(); });
+function renderInstall() {
+  const b = $('installBody');
+  if (Install.installed) b.innerHTML = `<p class="sub">You're playing the installed app. Nice!</p>`;
+  else if (Install.prompt) {
+    b.innerHTML = `<p class="sub">Add Pokémon Survivors to your home screen or desktop. It opens full screen like a normal app and works offline.</p>
+      <p class="center"><button class="btn" id="doInstall">Install</button></p>`;
+    $('doInstall').onclick = async () => { const p = Install.prompt; Install.prompt = null; p.prompt(); await p.userChoice.catch(() => {}); renderInstall(); };
+  } else if (Install.ios) b.innerHTML = `<p class="sub">Add it to your home screen to play full screen, offline too:</p>
+      <ol class="steps"><li>Tap the <b>Share</b> button <span aria-hidden="true">(the square with an arrow)</span>.</li>
+      <li>Scroll down and tap <b>Add to Home Screen</b>.</li><li>Tap <b>Add</b>.</li></ol>
+      <p class="sub" style="margin-top:10px">The home screen app keeps its own save, separate from the browser. To bring your progress over, use <b>Cloud Save</b> in both places with the same sync code.</p>`;
+  else b.innerHTML = `<p class="sub">Open your browser's menu (<b>⋮</b> or <b>…</b>) and choose <b>Install app</b> or <b>Add to Home screen</b>. Some browsers, like Firefox on desktop, can't install web apps, but offline play still works here.</p>`;
+  const S = Save.data;
+  $('offlineNote').textContent = S.offlineAt ? `Last saved for offline: ${new Date(S.offlineAt).toLocaleDateString()} (regions you'd unlocked then).` : '';
+}
+function offlineURLs() {
+  const urls = new Set();
+  for (const R of REGIONS.slice(0, Save.data.unlocked + 1)) {
+    for (const id of R.dex) { urls.add(animURL(id)); urls.add(animURL(id, true)); urls.add(monURL(id)); urls.add(monURL(id, true)); }
+    for (const k of R.starters) for (const [id] of STARTERS[k].stages) { urls.add(animURL(id, false, true)); urls.add(animURL(id, true, true)); }
+  }
+  return [...urls];
+}
+$('offlineBtn').onclick = async () => {
+  const btn = $('offlineBtn'), note = $('offlineNote');
+  const reg = 'serviceWorker' in navigator && await navigator.serviceWorker.ready.catch(() => null);
+  if (!reg || !reg.active) { note.textContent = "This browser can't save the game for offline play."; return; }
+  const urls = offlineURLs(), ch = new MessageChannel();
+  btn.disabled = true; note.textContent = `Saving ${urls.length} sprites (about ${Math.round(urls.length*.025)} MB)…`;
+  ch.port1.onmessage = ({ data:d }) => {
+    note.textContent = d.finished
+      ? (d.failed ? `Saved for offline (${d.failed} sprites didn't exist or couldn't download).` : 'All set! Every region you\'ve unlocked works offline.')
+      : `Saving sprites… ${Math.round(100*d.done/d.total)}%`;
+    if (d.finished) { btn.disabled = false; Save.data.offlineAt = Date.now(); Save.write(); }
+  };
+  reg.active.postMessage({ type:'prefetch', urls }, [ch.port2]);
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch {}
+};
+$('installBtn').onclick = () => { renderInstall(); $('installScreen').classList.remove('hidden'); };
+
 const fmtTime = s => `${Math.floor(s/60)}:${String(s%60).padStart(2, '0')}`;
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 function calcScore() {
@@ -3081,7 +3153,7 @@ async function postScore(auto) {
 $('postBtn').onclick = () => postScore(false);
 function openScreen(id) { if (id === 'lbScreen') renderLB(); else renderAch(); $(id).classList.remove('hidden'); }
 function closeOverlay() {
-  for (const id of ['setScreen', 'dexScreen', 'martScreen', 'syncScreen', 'lbScreen', 'achScreen']) if (!$(id).classList.contains('hidden')) { $(id).classList.add('hidden'); renderTitle(); return true; }
+  for (const id of ['setScreen', 'installScreen', 'dexScreen', 'martScreen', 'syncScreen', 'lbScreen', 'achScreen']) if (!$(id).classList.contains('hidden')) { $(id).classList.add('hidden'); renderTitle(); return true; }
   return false;
 }
 document.querySelectorAll('[data-close]').forEach(b => b.onclick = () => { b.closest('.screen').classList.add('hidden'); renderTitle(); });
@@ -3353,6 +3425,7 @@ function renderTitle() {
   $('sndBtn').textContent = S.settings.muted ? 'Sound: Off' : 'Sound: On';
   $('martBtn').textContent = `Poké Mart ₽${pokeDollars().toLocaleString()}`;
   $('dexBtn').textContent = `Pokédex ${dexPercent()}%`;
+  $('installBtn').textContent = Install.installed ? 'Offline play' : 'Install app';
   // today's Daily Challenge
   const D = dailyFor(), ds = STARTERS[D.starter], best = (S.daily || {})[D.date];
   $('dailyCard').innerHTML = `<button class="daily" id="dailyPlay">
