@@ -72,7 +72,7 @@
   .tag{font-size:10px;font-weight:800;padding:2px 6px;border-radius:4px;background:#2a75bb;color:#fff}
   .tag.new{background:#e3350d}.tag.evo{background:linear-gradient(90deg,#f8a800,#e3350d)}
   .key{font-size:10px;color:#8a94a8;margin-left:auto;font-family:"Press Start 2P",monospace}
-  #levelup .box,#pause .box,#end .box{max-width:560px}
+  #levelup .box,#pause .box,#end .box,#swap .box{max-width:560px}
   .stats{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-size:14px;margin:12px 0 18px}
   .stats div{display:flex;justify-content:space-between;border-bottom:1px dashed #c0c8d4;padding:3px 0}
   .btn{display:block;margin:0 auto;font-family:"Press Start 2P",monospace;font-size:12px;padding:12px 20px;background:var(--accent);color:#fff;border:3px solid #8a1c06;border-radius:8px;cursor:pointer;box-shadow:0 4px 0 #8a1c06}
@@ -99,6 +99,9 @@
   .ach{display:flex;gap:10px;align-items:center;background:#fff;border:2px solid var(--line);border-radius:8px;padding:8px}
   .ach.locked{opacity:.55;filter:grayscale(1)}
   #achScreen .box,#lbScreen .box{max-width:780px}
+  #syncScreen .box{max-width:560px}
+  .synccode{font-size:clamp(13px,4vw,20px);text-align:center;background:#fff;border:3px dashed var(--line);border-radius:10px;padding:14px 8px;margin:0 0 12px;letter-spacing:1px;user-select:all}
+  #syncBody hr{border:none;border-top:2px dashed #c0c8d4;margin:16px 0}
   table.lb{width:100%;border-collapse:collapse;font-size:13px}
   .lb th{font-size:8px;font-family:"Press Start 2P",monospace;text-align:left;padding:6px;border-bottom:3px solid var(--line)}
   .lb td{padding:4px 6px;border-bottom:1px dashed #c0c8d4;white-space:nowrap}
@@ -159,6 +162,7 @@
       <button class="btn2" id="achBtn">Achievements</button>
       <button class="btn2 ghost" id="sndBtn">Sound: On</button>
       <button class="btn2 ghost" id="viewBtn">View: 2D</button>
+      <button class="btn2" id="syncBtn">Cloud Save</button>
     </div>
     <div id="regions"></div>
     <p class="sub" id="regionInfo"></p>
@@ -168,11 +172,21 @@
       <div><b>Type matchups matter:</b> super effective hits do 2× (or 4×), resisted hits do ½×. Enemies' attacks follow the chart too.</div>
       <div><b>STAB:</b> moves that share your Pokémon's type do 1.5× damage.</div>
       <div><b>Evolve:</b> you evolve at Lv 12 and Lv 28. Max a move to Lv 6 while holding its type item to unlock its evolved form.</div>
-      <div><b>Shiny Pokémon</b> drop Poké Balls. Grab one to catch it as an ally (up to 4). Your own starter has a 1 in 50 chance to be shiny!</div>
+      <div><b>Shiny Pokémon</b> drop Poké Balls. Grab one to catch it as an ally (up to 5; when your party is full you can swap one out). Your own starter has a 1 in 50 chance to be shiny!</div>
       <div><b>3D mode:</b> switch with the View button. Space / A / JUMP to jump over enemies. Turn the camera by dragging (mouse or right side of the screen), Q / E, or the right stick.</div>
       <div><b>Pause:</b> Esc, P, the II button or Start. Pick level-up options with 1 / 2 / 3 (or the stick + A). <b>M</b> mutes sound.</div>
       <div style="grid-column:1/-1;font-size:11px;color:#8a94a8">Unofficial, non-commercial fan game. Pokémon © Nintendo / Game Freak / The Pokémon Company. Anonymous visit counts only: no cookies, nothing personal.</div>
     </div>
+  </div>
+</div>
+
+<div id="swap" class="screen hidden">
+  <div class="box">
+    <h2 class="px">Your party is full!</h2>
+    <div class="choice" id="swapNew" style="cursor:default;border-color:#f8a800;margin-bottom:14px"></div>
+    <p class="sub" style="margin:0 0 10px">Choose a party member to swap out:</p>
+    <div id="swapList" style="display:flex;flex-direction:column;gap:10px"></div>
+    <p class="center" style="margin:14px 0 0"><button class="btn2 ghost" id="swapKeep">Keep my party</button></p>
   </div>
 </div>
 
@@ -234,6 +248,15 @@
       </table>
     </div>
     <p class="center" style="margin:16px 0 0"><button class="btn" data-close>Back</button></p>
+  </div>
+</div>
+
+<div id="syncScreen" class="screen hidden">
+  <div class="box">
+    <h2 class="px">Cloud Save</h2>
+    <div id="syncBody"></div>
+    <p class="sub" id="syncStatus" style="margin-top:10px"></p>
+    <p class="center" style="margin:14px 0 0"><button class="btn" data-close>Back</button></p>
   </div>
 </div>
 
@@ -969,6 +992,72 @@ const ONLINE = {
   key: 'sb_publishable_g080Asewd4FDfAHPUpHxAg_OjqsGj6y',
 };
 
+/* Cloud save: keeps progress in sync across devices through a private sync code
+   (see supabase-sync.sql). Progress is always MERGED, never overwritten, so nothing is lost:
+   achievements, wins, starters played and unlocked regions combine; scores are pooled;
+   counters keep the higher value. Settings (volume, 2D/3D...) stay per device. */
+const SYNC_KEYS = ['ach', 'scores', 'wins', 'played', 'totalKills', 'runs', 'unlocked', 'regionWins', 'myOnline'];
+const SYNC_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no I, O, 0 or 1, so codes are easy to type
+const Sync = {
+  get code() { return Save.data.sync && Save.data.sync.code; },
+  newCode() { return [...crypto.getRandomValues(new Uint8Array(16))].map(b => SYNC_ALPHABET[b % 32]).join(''); },
+  pretty: c => c.match(/.{4}/g).join('-'),
+  clean: s => String(s).toUpperCase().replace(/[^A-Z0-9]/g, ''),
+  valid: c => /^[A-HJ-NP-Z2-9]{16}$/.test(c),
+  async rpc(fn, args) {
+    const r = await fetch(`${ONLINE.url}/rest/v1/rpc/${fn}`, { method:'POST', headers:Online.headers(), body:JSON.stringify(args) });
+    if (!r.ok) { const b = await r.json().catch(() => ({})); throw new Error(b.message || 'HTTP ' + r.status); }
+    const t = await r.text(); return t ? JSON.parse(t) : null;
+  },
+  payload() { const o = {}; for (const k of SYNC_KEYS) o[k] = Save.data[k]; o.name = Save.data.settings.name; o.v = 1; return o; },
+  // fold another device's progress into this one
+  merge(d) {
+    if (!d || typeof d !== 'object') return;
+    const S = Save.data;
+    const known = new Set(ACHIEVEMENTS.map(a => a.id));
+    for (const k in d.ach || {}) if (known.has(k)) { const t = +d.ach[k] || Date.now(); S.ach[k] = S.ach[k] ? Math.min(S.ach[k], t) : t; }
+    for (const k in d.wins || {}) if (d.wins[k] && Object.prototype.hasOwnProperty.call(STARTERS, k)) S.wins[k] = true;
+    for (const k in d.played || {}) if (d.played[k] && Object.prototype.hasOwnProperty.call(STARTERS, k)) S.played[k] = true;
+    for (const k in d.regionWins || {}) if (d.regionWins[k] && REGIONS.some(R => R.key === k)) S.regionWins[k] = true;
+    S.unlocked = Math.max(S.unlocked || 0, Math.min(REGIONS.length - 1, +d.unlocked || 0));
+    S.totalKills = Math.max(S.totalKills || 0, +d.totalKills || 0);
+    S.runs = Math.max(S.runs || 0, +d.runs || 0);
+    S.myOnline = [...new Set([...(S.myOnline || []), ...(Array.isArray(d.myOnline) ? d.myOnline.filter(Number.isInteger) : [])])].slice(-500);
+    const seen = new Set(S.scores.map(s => `${s.date}|${s.score}|${s.starter}`));
+    const int = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(+v) || 0));
+    for (const s of Array.isArray(d.scores) ? d.scores : []) {
+      if (!s || !Object.prototype.hasOwnProperty.call(STARTERS, s.starter)) continue;
+      // rebuild each score from plain, checked values so nothing odd can reach the page
+      const c = { name:String(s.name || 'Trainer').slice(0, 14), starter:s.starter, region:int(s.region, 0, REGIONS.length - 1),
+                  id:int(s.id, 1, 1100), mon:String(s.mon || '').slice(0, 20), shiny:!!s.shiny, score:int(s.score, 0, 2e7),
+                  t:int(s.t, 0, 7200), level:int(s.level, 1, 500), kills:int(s.kills, 0, 2e6), won:!!s.won, date:int(s.date, 0, 1e14) };
+      const key = `${c.date}|${c.score}|${c.starter}`;
+      if (!seen.has(key)) { seen.add(key); S.scores.push(c); }
+    }
+    S.scores.sort((a, b) => b.score - a.score); S.scores = S.scores.slice(0, 100);
+    if ((!S.settings.name || S.settings.name === 'Trainer') && typeof d.name === 'string' && NameFilter.ok(d.name)) S.settings.name = d.name.slice(0, 14);
+  },
+  async push() {
+    if (!this.code || !Online.on) return;
+    await this.rpc('save_progress', { p_code:this.code, p_data:this.payload() });
+    Save.data.sync.at = Date.now(); Save.write();
+  },
+  // pull and merge the cloud copy, then upload the combined result
+  async syncNow() {
+    if (!this.code || !Online.on) return false;
+    const remote = await this.rpc('load_progress', { p_code:this.code });
+    if (remote) { this.merge(remote); Save.write(); }
+    await this.push();
+    return true;
+  },
+  // upload a little after something changes (a run ending, an achievement)
+  soon() {
+    if (!this.code) return;
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.syncNow().catch(() => {}), 3000);
+  },
+};
+
 /* Private, anonymous stats via GoatCounter (no cookies, nothing personal).
    Put your GoatCounter site code here (the "xyz" in xyz.goatcounter.com) to turn it on.
    It records visits (with where people came from), runs started (region/starter) and wins.
@@ -1082,7 +1171,7 @@ const ACHIEVEMENTS = [
   { id:'moveEvo3', name:'TM Collector',           desc:'Evolve 3 moves in one run.',               test:r => r.movesEvolved >= 3 },
   { id:'six',      name:'Full Moveset',           desc:'Know 6 moves at once.',                    test:r => r.moves >= 6 },
   { id:'catch',    name:'Gotcha!',                desc:'Catch a shiny Pokémon.',                   test:r => r.caught >= 1 },
-  { id:'party',    name:'Full Party',             desc:'Have 4 allies at once.',                   test:r => r.allies >= 4 },
+  { id:'party',    name:'Full Party',             desc:'Have a full party of 5 allies.',           test:r => r.allies >= 5 },
   { id:'allyEvo',  name:'Growing Together',       desc:'Watch one of your allies evolve.',         test:r => r.allyEvolved >= 1 },
   { id:'x4',       name:"It's Super Effective!!", desc:'Land a 4× super effective hit.',          test:r => r.hit4 },
   { id:'ko1k',     name:'Wild Battle Pro',        desc:'KO 1,000 Pokémon in one run.',             test:r => r.kills >= 1000 },
@@ -1267,7 +1356,12 @@ addEventListener('keydown', e => {
   if (e.key === ' ' && V3.on && G && G.running && !G.paused && !G.choosing) { e.preventDefault(); jump(); return; }
   if (e.key === 'Escape' && closeOverlay()) return;
   if (!G) return;
-  if (G.choosing && /^[1-4]$/.test(e.key)) { const b = document.querySelectorAll('.choice')[+e.key - 1]; if (b) b.click(); return; }
+  if (G.swapping) { // 1-5 swap that party member out, Esc keeps the party
+    if (/^[1-5]$/.test(e.key)) { const b = $('swapList').children[+e.key - 1]; if (b) b.click(); }
+    else if (e.key === 'Escape') $('swapKeep').click();
+    return;
+  }
+  if (G.choosing && /^[1-4]$/.test(e.key)) { const b = document.querySelectorAll('#choices .choice')[+e.key - 1]; if (b) b.click(); return; }
   if ((e.key === 'Escape' || e.key.toLowerCase() === 'p') && G.running && !G.choosing) togglePause();
 });
 addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
@@ -1334,7 +1428,7 @@ const Pad = { move:[0, 0], prev:[], navT:0, navHeld:false, gp:null, rumbleT:0 };
 addEventListener('gamepadconnected', e => showNote(`Controller connected: ${e.gamepad.id.split('(')[0].trim() || 'Gamepad'}`));
 addEventListener('gamepaddisconnected', () => showNote('Controller disconnected'));
 function topScreen() {
-  for (const id of ['lbScreen', 'achScreen', 'levelup', 'pause', 'end', 'title']) { const el = $(id); if (!el.classList.contains('hidden')) return el; }
+  for (const id of ['syncScreen', 'lbScreen', 'achScreen', 'swap', 'levelup', 'pause', 'end', 'title']) { const el = $(id); if (!el.classList.contains('hidden')) return el; }
   return null;
 }
 function focusables(scr) {
@@ -1398,11 +1492,11 @@ function pollPad(dt) {
       Pad.navHeld = true;
     } else Pad.navHeld = false;
     if (hit(0) && performance.now() > (Pad.lockUntil || 0)) { const f = document.activeElement; if (f && scr.contains(f) && f !== document.body) f.click(); else padFocus(focusables(scr)[0]); }
-    if (hit(1)) { if (!closeOverlay() && G && G.paused) togglePause(); }
+    if (hit(1)) { if (G && G.swapping) $('swapKeep').click(); else if (!closeOverlay() && G && G.paused) togglePause(); }
     if (hit(9) && G && G.paused) togglePause();
   } else {
     Pad.move = [x, y];
-    if (hit(9) && G && G.running && !G.choosing) togglePause();
+    if (hit(9) && G && G.running && !G.choosing && !G.swapping) togglePause();
     if (hit(0)) jump(); // A jumps in 3D
   }
   Pad.prev = gp.buttons.map(b => b.pressed);
@@ -2119,18 +2213,60 @@ function collect(k) {
     banner('Got a bag of Rare Candies!');
     for (let i = 0; i < 3; i++) gainXp(G.xpNext - G.xp + .01);
   } else if (k.kind === 'ball') {
-    if (G.allies.length < 4) {
-      const ally = { ...k.mon, x:k.x, y:k.y, cd:.5, dirX:1, level:G.level, stage:0, evoT:0 };
-      G.allies.push(ally);
-      prepareAllyEvolution(ally);
-      G.caught++; Sound.sfx('catch');
+    if (G.allies.length < MAX_ALLIES) {
+      G.allies.push(newAlly(k.mon, k.x, k.y));
       banner(`Gotcha! Shiny ${k.mon.name} was caught!`);
       renderLoadout();
-    } else {
-      P.hp = Math.min(P.maxHp, P.hp + P.maxHp*.5); gainXp(40);
-      banner(`Your party is full. ${k.mon.name} was released.`);
-    }
+    } else openSwap(k.mon);
   }
+}
+
+/* Party: up to 5 allies (a party of 6 with your own Pokémon). Catching one more pauses
+   the game so you can swap someone out, or keep your party and let the new one go. */
+const MAX_ALLIES = 5;
+function newAlly(mon, x, y) {
+  const ally = { ...mon, x, y, cd:.5, dirX:1, level:G.level, stage:0, evoT:0 };
+  prepareAllyEvolution(ally);
+  G.caught++; Sound.sfx('catch');
+  return ally;
+}
+function openSwap(mon) {
+  G.swapping = true; pointer = null; stick = null;
+  const badges = types => types.map(typeBadge).join('');
+  $('swapNew').innerHTML = `<div class="ic"><img src="${monURL(mon.id, true)}" alt=""></div>
+    <div><div class="t">✨ ${esc(mon.name)} <span class="tag new">NEW</span> <span class="tag">Lv ${G.level}</span> ${badges(mon.types)}</div>
+    <div class="d">Wants to join your party.</div></div>`;
+  const box = $('swapList'); box.innerHTML = '';
+  G.allies.forEach((a, i) => {
+    const b = document.createElement('button');
+    b.className = 'choice';
+    b.innerHTML = `<div class="ic"><img src="${monURL(a.id, true)}" alt=""></div>
+      <div><div class="t">${esc(a.name)} <span class="tag">Lv ${a.level}</span> ${badges(a.types)}</div>
+      <div class="d">${a.next ? `Evolves into ${esc(a.next.name)} at Lv ${a.next.at}` : a.stage ? 'Fully evolved' : 'Swap this one out'}</div></div>
+      <span class="key">${i + 1}</span>`;
+    b.onclick = () => {
+      const old = G.allies[i];
+      G.allies[i] = newAlly(mon, old.x, old.y); // the newcomer takes its place in line
+      emit(old.x, old.y - 10, 14, { color:'rgba(255,255,255,.8)', spread:120, life:.5, size:4 });
+      banner(`Bye, ${old.name}! Gotcha! Shiny ${mon.name} joined the party!`, 3);
+      closeSwap();
+    };
+    box.appendChild(b);
+  });
+  $('swapKeep').onclick = () => {
+    P.hp = Math.min(P.maxHp, P.hp + P.maxHp*.5); gainXp(40); // a small thank-you for letting it go
+    banner(`${mon.name} was released. It left you a gift!`);
+    closeSwap();
+  };
+  $('swap').classList.remove('hidden');
+  Pad.lockUntil = performance.now() + 450;
+  if (Pad.gp) padFocus(box.firstChild);
+}
+function closeSwap() {
+  G.swapping = false;
+  $('swap').classList.add('hidden');
+  renderLoadout();
+  Sound.sfx('select');
 }
 
 /* =========================================================================
@@ -2302,7 +2438,7 @@ function togglePause() {
   }
 }
 $('resumeBtn').onclick = togglePause;
-$('pauseBtn').onclick = () => { if (G && G.running && !G.choosing) togglePause(); };
+$('pauseBtn').onclick = () => { if (G && G.running && !G.choosing && !G.swapping) togglePause(); };
 function showNote(text) {
   const el = document.createElement('div');
   el.className = 'toast';
@@ -2341,7 +2477,7 @@ function checkAch() {
     S.ach[a.id] = Date.now(); changed = true;
     toast(a);
   }
-  if (changed) { Save.write(); Sound.sfx('ach'); }
+  if (changed) { Save.write(); Sound.sfx('ach'); Sync.soon(); }
 }
 function toast(a) {
   const el = document.createElement('div');
@@ -2428,13 +2564,67 @@ async function postScore(auto) {
 $('postBtn').onclick = () => postScore(false);
 function openScreen(id) { if (id === 'lbScreen') renderLB(); else renderAch(); $(id).classList.remove('hidden'); }
 function closeOverlay() {
-  for (const id of ['lbScreen', 'achScreen']) if (!$(id).classList.contains('hidden')) { $(id).classList.add('hidden'); return true; }
+  for (const id of ['syncScreen', 'lbScreen', 'achScreen']) if (!$(id).classList.contains('hidden')) { $(id).classList.add('hidden'); renderTitle(); return true; }
   return false;
 }
 document.querySelectorAll('[data-close]').forEach(b => b.onclick = () => { b.closest('.screen').classList.add('hidden'); renderTitle(); });
 $('lbBtn').onclick = () => openScreen('lbScreen');
 $('endLbBtn').onclick = () => { lbMode = Online.on ? 'world' : 'local'; openScreen('lbScreen'); };
 $('achBtn').onclick = () => openScreen('achScreen');
+$('syncBtn').onclick = () => { renderSync(); $('syncScreen').classList.remove('hidden'); };
+
+// ---- cloud save screen ----
+const syncStatus = msg => { $('syncStatus').textContent = msg; };
+const ago = t => { const s = Math.round((Date.now() - t)/1000); return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s/60)} min ago` : s < 86400 ? `${Math.round(s/3600)} h ago` : `${Math.round(s/86400)} days ago`; };
+function renderSync() {
+  const body = $('syncBody'), code = Sync.code;
+  syncStatus('');
+  if (!Online.on) { body.innerHTML = '<p class="sub">Cloud save is not available right now.</p>'; return; }
+  const loadForm = `<div class="namerow"><input id="syncIn" placeholder="ABCD-EFGH-JKLM-NPQR" maxlength="24" autocomplete="off" spellcheck="false"><button class="btn2" id="syncLoad">Load</button></div>`;
+  if (code) {
+    body.innerHTML = `
+      <p class="sub">Your progress is saved online. Enter this code on your other devices to share it:</p>
+      <div class="synccode px">${Sync.pretty(code)}</div>
+      <div class="row"><button class="btn2" id="syncCopy">Copy code</button><button class="btn2 ghost" id="syncNowBtn">Sync now</button></div>
+      <p class="sub">${Save.data.sync.at ? `Last synced ${ago(Save.data.sync.at)}.` : 'Not synced yet.'} It syncs by itself after every run.</p>
+      <p class="sub" style="font-size:12px">Keep this code private. Anyone who has it can load your progress.</p>
+      <hr><p class="sub">Use a code from another device instead:</p>${loadForm}
+      <p class="center" style="margin:6px 0 0"><a href="#" id="syncOff" style="color:#4a5468;font-size:13px">Stop syncing on this device</a></p>`;
+    $('syncCopy').onclick = async () => {
+      try { await navigator.clipboard.writeText(Sync.pretty(code)); syncStatus('Code copied!'); }
+      catch (e) { syncStatus('Select the code above and copy it.'); }
+    };
+    $('syncNowBtn').onclick = async () => {
+      syncStatus('Syncing…');
+      try { await Sync.syncNow(); renderSync(); syncStatus('Synced!'); renderTitle(); } catch (e) { syncStatus("Couldn't reach the cloud. Check your connection."); }
+    };
+    $('syncOff').onclick = e => { e.preventDefault(); delete Save.data.sync; Save.write(); renderSync(); syncStatus('This device stopped syncing. Your progress stays here, and in the cloud under the old code.'); };
+  } else {
+    body.innerHTML = `
+      <p class="sub">Play on your PC and your phone with the same progress: achievements, unlocked regions, scores and more.</p>
+      <div class="row"><button class="btn" id="syncOn">Turn on cloud save</button></div>
+      <hr><p class="sub">Already turned it on on another device? Enter that code:</p>${loadForm}`;
+    $('syncOn').onclick = async () => {
+      Save.data.sync = { code:Sync.newCode() }; Save.write();
+      syncStatus('Saving…');
+      try { await Sync.push(); renderSync(); syncStatus('Cloud save is on!'); }
+      catch (e) { renderSync(); syncStatus("Your code is ready, but the first upload failed. It'll retry after your next run."); }
+    };
+  }
+  $('syncLoad').onclick = async () => {
+    const c = Sync.clean($('syncIn').value);
+    if (!Sync.valid(c)) { syncStatus('That code looks wrong. It has 16 letters and numbers, like ABCD-EFGH-JKLM-NPQR.'); return; }
+    syncStatus('Loading…');
+    try {
+      const remote = await Sync.rpc('load_progress', { p_code:c });
+      if (!remote) { syncStatus('No save found for that code.'); return; }
+      Save.data.sync = { code:c }; Sync.merge(remote); Save.write();
+      await Sync.push();
+      renderSync(); renderTitle();
+      syncStatus('Loaded! This device now shares that progress, combined with what was already here.');
+    } catch (e) { syncStatus("Couldn't reach the cloud. Check your connection and try again."); }
+  };
+}
 $('sndBtn').onclick = () => toggleMute();
 function toggleMute() {
   const st = Save.data.settings;
@@ -2478,6 +2668,7 @@ function endGame(won) {
   const best = S.scores.filter(s => s.starter === G.starterKey);
   Save.write();
   G.entry = entry;
+  Sync.soon();
   $('endTitle').textContent = won ? `${R.name} Champion!` : 'You blacked out!';
   $('endSub').textContent = won
     ? `${P.name} defeated ${R.finalBoss}!` + (unlockedNow ? ` The ${next.name} region is now unlocked!` : !next ? ' You have conquered every region!' : '')
@@ -3513,7 +3704,7 @@ function frame(now) {
   pollPad(dt);
   update3DControls(dt);
   pumpAnimQueue();
-  if (G && G.running && !G.paused && !G.choosing) update(dt);
+  if (G && G.running && !G.paused && !G.choosing && !G.swapping) update(dt);
   render(now);
   if (G) updateHUD(G.running && !G.paused ? dt : 0);
   requestAnimationFrame(frame);
@@ -3526,6 +3717,9 @@ $('viewBtnPause').onclick = () => set3D(!Save.data.settings.mode3d);
 $('jumpBtn').addEventListener('pointerdown', e => { e.preventDefault(); jump(); });
 updateViewButtons();
 if (Save.data.settings.mode3d) set3D(true);
+
+// pick up progress made on other devices when the game opens
+if (Sync.code) Sync.syncNow().then(() => { if (!G) renderTitle(); }).catch(() => {});
 </script>
 </body>
 </html>
