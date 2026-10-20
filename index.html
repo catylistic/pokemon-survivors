@@ -102,6 +102,13 @@
   #syncScreen .box{max-width:560px}
   #martScreen .box{max-width:820px}
   #dexScreen .box{max-width:860px}
+  .daily{display:flex;gap:10px;align-items:center;width:100%;max-width:640px;margin:0 auto 12px;text-align:left;font:inherit;color:inherit;cursor:pointer;
+    background:linear-gradient(135deg,#fff7d0,#ffe9a8);border:3px solid #b07800;border-radius:12px;padding:8px 12px;box-shadow:0 3px 0 #8a5c00}
+  .daily:hover,.daily:focus-visible{transform:translateY(-2px);outline:none}
+  .daily img{width:56px;height:56px;image-rendering:pixelated;flex:0 0 56px}
+  .daily b.px{font-size:11px;color:#8a5c00;display:block;margin-bottom:3px}
+  .daily small{display:block;font-size:12px;color:#4a3a10}
+  .daily .go{margin-left:auto;font-family:"Press Start 2P",monospace;font-size:10px;background:#e3350d;color:#fff;border:2px solid #8a1c06;border-radius:6px;padding:8px 10px;white-space:nowrap}
   #dexTabs{display:flex;gap:5px;justify-content:center;flex-wrap:wrap;margin:0 0 8px}
   #dexGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:6px;max-height:50vh;overflow:auto;padding:2px}
   .dex{background:#fff;border:2px solid var(--line);border-radius:8px;padding:4px 2px 6px;cursor:pointer;font:inherit;color:inherit;display:flex;flex-direction:column;align-items:center;position:relative}
@@ -189,6 +196,7 @@
       <button class="btn2" id="martBtn" style="background:#e3350d;border-color:#8a1c06;box-shadow:0 3px 0 #8a1c06">Poké Mart</button>
       <button class="btn2" id="dexBtn" style="background:#c03028;border-color:#701810;box-shadow:0 3px 0 #701810">Pokédex</button>
     </div>
+    <div id="dailyCard"></div>
     <div id="regions"></div>
     <p class="sub" id="regionInfo"></p>
     <div id="starters"></div>
@@ -264,6 +272,7 @@
     <h2 class="px">Leaderboard</h2>
     <div class="menu" id="lbTabs">
       <button class="btn2" data-lb="world">World</button>
+      <button class="btn2 ghost" data-lb="daily">Today</button>
       <button class="btn2 ghost" data-lb="local">This device</button>
     </div>
     <div class="vol"><label>Region <select id="lbFilter"></select></label></div>
@@ -1085,10 +1094,37 @@ function ensureMart() {
   // one-time thank-you for players from before the Poké Mart existed
   if (S.earned.legacy === undefined) S.earned.legacy = Math.min(20000, Math.floor((S.totalKills || 0)*.3));
 }
+/* =========================================================================
+   Daily Challenge: everyone gets the same region, starter and twist each
+   day (chosen from the UTC date), unlocks not required. Runs go on a
+   separate daily leaderboard.
+   ========================================================================= */
+const TWISTS = {
+  glass:  { name:'Glass Cannon',    desc:'+50% damage, but 40% less HP.' },
+  shiny:  { name:'Shiny Hunt',      desc:'Shiny Pokémon appear every 20 seconds.' },
+  hyper:  { name:'Hyper Speed',     desc:'You and every wild Pokémon move 30% faster.' },
+  lucky:  { name:'Lucky Day',       desc:'+25% critical hits and double Poké Dollars.' },
+  horde:  { name:'Horde',           desc:'50% more wild Pokémon, and 25% more experience.' },
+  candy:  { name:'Rare Candy Rush', desc:'75% more experience.' },
+  head:   { name:'Head Start',      desc:'Begin the run at Lv 10.' },
+};
+const todayUTC = () => new Date().toISOString().slice(0, 10);
+function dailyFor(date = todayUTC()) {
+  let h = 2166136261; for (const ch of 'pokesurv' + date) h = Math.imul(h ^ ch.charCodeAt(0), 16777619); // FNV-1a
+  const pick = n => { h = Math.imul(h ^ (h >>> 15), 2246822507); h = Math.imul(h ^ (h >>> 13), 3266489909); return ((h ^ (h >>> 16)) >>> 0) % n; };
+  const region = pick(REGIONS.length), starters = REGIONS[region].starters, keys = Object.keys(TWISTS);
+  return { date, region, starter:starters[pick(starters.length)], twist:keys[pick(keys.length)] };
+}
+const twist = k => !!(G && G.daily && G.daily.twist === k);
+function timeToNextDaily() {
+  const now = new Date(), next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+  const m = Math.ceil((next - now)/60000); return `${Math.floor(m/60)}h ${m % 60}m`;
+}
+
 // ₽ earned by a finished run
 function runEarnings() {
   const base = G.kills*.5 + G.t/6 + G.bosses.length*150 + (G.won ? 600 : 0);
-  return Math.round(base * (1 + .25*G.region) * (1 + .1*martLv('amuletCoin')));
+  return Math.round(base * (1 + .25*G.region) * (1 + .1*martLv('amuletCoin')) * (twist('lucky') ? 2 : 1));
 }
 
 /* =========================================================================
@@ -1106,7 +1142,7 @@ const ONLINE = {
    (see supabase-sync.sql). Progress is always MERGED, never overwritten, so nothing is lost:
    achievements, wins, starters played and unlocked regions combine; scores are pooled;
    counters keep the higher value. Settings (volume, 2D/3D...) stay per device. */
-const SYNC_KEYS = ['ach', 'scores', 'wins', 'played', 'totalKills', 'runs', 'unlocked', 'regionWins', 'myOnline', 'mart', 'earned', 'dex'];
+const SYNC_KEYS = ['ach', 'scores', 'wins', 'played', 'totalKills', 'runs', 'unlocked', 'regionWins', 'myOnline', 'mart', 'earned', 'dex', 'daily'];
 const SYNC_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no I, O, 0 or 1, so codes are easy to type
 const Sync = {
   get code() { return Save.data.sync && Save.data.sync.code; },
@@ -1136,6 +1172,9 @@ const Sync = {
     // Poké Mart: highest level of each upgrade, highest earnings per device
     for (const m of MART) if (d.mart && d.mart[m.key]) S.mart[m.key] = Math.max(S.mart[m.key] || 0, Math.min(m.max, Math.round(+d.mart[m.key]) || 0));
     for (const k in d.earned || {}) if (/^(legacy|d[0-9a-f]{12})$/.test(k)) S.earned[k] = Math.max(S.earned[k] || 0, Math.min(1e8, Math.round(+d.earned[k]) || 0));
+    // Daily Challenge bests per day
+    S.daily = S.daily || {};
+    for (const k in d.daily || {}) if (/^\d{4}-\d{2}-\d{2}$/.test(k)) S.daily[k] = Math.max(S.daily[k] || 0, Math.min(2e7, Math.round(+d.daily[k]) || 0));
     // Pokédex: everything seen or caught on either device
     const dd = d.dex || {}, okId = k => /^\d{1,4}$/.test(k) && +k >= 1 && +k <= 1100;
     for (const k in dd.seen || {}) if (okId(k)) S.dex.seen[k] = 1;
@@ -1232,10 +1271,16 @@ const Online = {
       score:clamp(e.score, 2e7), t:clamp(e.t, 7200), level:Math.max(1, clamp(e.level, 500)), kills:clamp(e.kills, 2e6), won:!!e.won,
       shiny:!!e.shiny,
     };
+    if (e.daily) row.daily = e.daily;
     const post = body => fetch(ONLINE.url + '/rest/v1/scores', { method:'POST', headers:this.headers({ Prefer:'return=representation' }), body:JSON.stringify(body), keepalive:true });
     let r = await post(row);
-    if (r.status === 400 && (await r.clone().json().catch(() => ({}))).code === 'PGRST204') {
-      delete row.shiny; r = await post(row); // database without the newer "shiny" column
+    // a database that hasn't added a newer column yet ("shiny", "daily"): drop that field and retry
+    for (let tries = 0; tries < 2 && r.status === 400; tries++) {
+      const b = await r.clone().json().catch(() => ({}));
+      const col = b.code === 'PGRST204' && ((b.message || '').match(/'(\w+)' column/) || [])[1];
+      if (!col || !(col in row)) break;
+      if (col === 'daily') { const err = new Error('no daily board'); err.noDaily = true; throw err; } // never let twist runs onto the regular board
+      delete row[col]; r = await post(row);
     }
     if (!r.ok) {
       const err = new Error('HTTP ' + r.status);
@@ -1247,16 +1292,18 @@ const Online = {
     }
     return (await r.json())[0];
   },
-  async top(region, limit = 25) {
+  // daily: a date for that day's Daily Challenge board; otherwise regular runs only
+  async top(region, limit = 25, daily = null) {
     let q = `/rest/v1/scores?select=*&order=score.desc,created_at.asc&limit=${limit}`;
     if (region !== 'all') q += `&region=eq.${+region}`;
-    const r = await fetch(ONLINE.url + q, { headers:this.headers() });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
+    let r = await fetch(ONLINE.url + q + (daily ? `&daily=eq.${daily}` : '&daily=is.null'), { headers:this.headers() });
+    if (!r.ok && !daily) r = await fetch(ONLINE.url + q, { headers:this.headers() }); // database without the "daily" column yet
+    if (!r.ok) { const e = new Error('HTTP ' + r.status); e.noDaily = !!daily; throw e; }
     return r.json();
   },
   // world rank = how many scores beat this one, plus one
-  async rank(score) {
-    const r = await fetch(ONLINE.url + `/rest/v1/scores?select=id&score=gt.${+score}`, { method:'HEAD', headers:this.headers({ Prefer:'count=exact' }) });
+  async rank(score, daily = null) {
+    const r = await fetch(ONLINE.url + `/rest/v1/scores?select=id&score=gt.${+score}` + (daily ? `&daily=eq.${daily}` : ''), { method:'HEAD', headers:this.headers({ Prefer:'count=exact' }) });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return +(r.headers.get('content-range') || '*/0').split('/')[1] + 1;
   },
@@ -1293,6 +1340,8 @@ const ACHIEVEMENTS = [
   { id:'dexSeen100',  name:'Pokémon Researcher',  desc:'See 100 different Pokémon.',               test:() => Object.keys(Save.data.dex.seen).filter(id => DEX[id]).length >= 100 },
   { id:'dexCaught25', name:'Collector',           desc:'Catch 25 different Pokémon.',              test:() => Object.keys(Save.data.dex.caught).length >= 25 },
   { id:'dexRegion',   name:'Regional Dex Complete', desc:"See every Pokémon in a region's Pokédex.", test:() => REGIONS.some(R => R.dex.every(id => Save.data.dex.seen[id])) },
+  { id:'daily1',   name:'Daily Trainer',          desc:'Finish a Daily Challenge.',                test:(r, s) => Object.keys(s.daily || {}).length >= 1 },
+  { id:'dailyWin', name:'Challenge Champion',     desc:'Win a Daily Challenge.',                   test:r => r.won && r.daily },
   { id:'mart10',   name:'Valued Customer',        desc:'Buy 10 upgrades at the Poké Mart.',        test:() => MART.reduce((s, m) => s + martLv(m.key), 0) >= 10 },
   { id:'allyEvo',  name:'Growing Together',       desc:'Watch one of your allies evolve.',         test:r => r.allyEvolved >= 1 },
   { id:'x4',       name:"It's Super Effective!!", desc:'Land a 4× super effective hit.',          test:r => r.hit4 },
@@ -1631,7 +1680,7 @@ function pollPad(dt) {
 let G = null, P = null;
 const $ = id => document.getElementById(id);
 
-function newGame(starterKey) {
+function newGame(starterKey, daily = null) {
   const st = STARTERS[starterKey];
   P = {
     starter: st, stage: 0, x: 0, y: 0, r: 16, fx: 1, fy: 0, dirX: 1, up: false,
@@ -1648,12 +1697,15 @@ function newGame(starterKey) {
     kills: 0, spawnT: 0, nextElite: 50, bossIdx: 0, swarmIdx: 0, boss: null, shake: 0, seT: 0,
     cam: { x: -W/2, y: -H/2 }, trailT: 0, hudT: 0, bannerT: 0,
     starterKey, region: st.region, won: false, hit4: false, lastHurt: 0, bosses: [], caught: 0, movesEvolved: 0, achT: 1,
+    daily,
   };
+  if (daily && daily.twist === 'glass') P.baseHp = P.maxHp = P.hp = Math.round(P.baseHp*.6);
+  if (daily && daily.twist === 'shiny') G.nextElite = 20;
   addMove(st.move);
   dexCatch({ id:P.id, name:P.name, types:P.types }); // your partner counts as caught
   recalc();
   Save.data.played[starterKey] = true; Save.data.runs++; Save.write();
-  Stats.event(`run/${REGIONS[st.region].key}/${starterKey}`);
+  Stats.event(daily ? `daily/${daily.date}` : `run/${REGIONS[st.region].key}/${starterKey}`);
   Sound.music('battle', st.region);
   for (const s of ['title', 'end', 'pause', 'levelup', 'achScreen', 'lbScreen']) $(s).classList.add('hidden');
   $('hud').classList.remove('hidden');
@@ -1666,6 +1718,10 @@ function newGame(starterKey) {
     Sound.sfx('shiny');
     emit(P.x, P.y - P.r, 30, { color:Math.random() < .5 ? '#fff8a0' : '#ffffff', spread:200, life:.9, size:4, add:true, drag:2 });
   } else banner(`Go! ${P.name}!`);
+  if (daily) {
+    banner(`Daily Challenge · ${TWISTS[daily.twist].name}: ${TWISTS[daily.twist].desc}`, 4.5);
+    if (daily.twist === 'head') for (let i = 0; i < 9; i++) gainXp(G.xpNext - G.xp + .01); // Lv 10 at the start
+  }
   // the first couple of runs: remind new players that candy is how you level up
   if (Save.data.runs <= 2) setTimeout(() => { if (G && G.running && G.t < 30) banner('Tip: walk over the Exp. Candy that fainted Pokémon drop to level up!', 5); }, 6000);
   // animations from another region aren't needed any more: free their memory
@@ -1678,12 +1734,12 @@ function recalc() {
   const I = k => G.items[k] || 0, M = martLv;
   const fullyEvolved = P.stage >= P.starter.stages.length - 1;
   G.stat = {
-    dmg: (1 + .1*I('muscleBand')) * (1 + .1*P.stage) * G.protein * (1 + .05*M('protein')),
+    dmg: (1 + .1*I('muscleBand')) * (1 + .1*P.stage) * G.protein * (1 + .05*M('protein')) * (twist('glass') ? 1.5 : 1),
     cd: Math.max(.4, (1 - .07*I('quickClaw')) * (1 - .04*M('ppUp'))),
     area: (1 + .1*I('wideLens')) * (1 + .05*M('calcium')),
-    speed: P.baseSpd * (1 + .08*I('choiceScarf')) * (1 + .05*P.stage) * (1 + .04*M('carbos')),
-    xp: (1 + .12*I('luckyEgg')) * (1 + .08*M('expCandy')),
-    crit: .05 + .07*I('scopeLens'),
+    speed: P.baseSpd * (1 + .08*I('choiceScarf')) * (1 + .05*P.stage) * (1 + .04*M('carbos')) * (twist('hyper') ? 1.3 : 1),
+    xp: (1 + .12*I('luckyEgg')) * (1 + .08*M('expCandy')) * (twist('candy') ? 1.75 : twist('horde') ? 1.25 : 1),
+    crit: .05 + .07*I('scopeLens') + (twist('lucky') ? .25 : 0),
     armor: Math.min(.7, 1 - (1 - Math.min(.6, (fullyEvolved ? .05 : .1) * I('eviolite'))) * (1 - .05*M('iron'))),
     regen: .6*I('leftovers'),
     pickup: 85 * (1 + .3*I('expShare')) * (1 + .15*M('itemfinder')),
@@ -1946,7 +2002,7 @@ function makeEnemy(sp, x, y) {
   const R = REGIONS[G.region];
   const hpScale = (1 + m*.15 + Math.max(0, m - 10)*.15) * R.hpMul;
   const e = {
-    id:sp.id, name:sp.name, types:sp.types, x, y, r:sp.r, hp:sp.hp*hpScale, speed:sp.spd*(.9 + Math.random()*.2),
+    id:sp.id, name:sp.name, types:sp.types, x, y, r:sp.r, hp:sp.hp*hpScale, speed:sp.spd*(.9 + Math.random()*.2)*(twist('hyper') ? 1.3 : 1),
     dmg:sp.dmg*(1 + m*.06)*R.dmgMul, xp:sp.xp*R.xpMul, kx:0, ky:0, flash:0, freeze:0, slowT:0, slowF:0, dirX:-1, hitT:{}, dead:false,
     born:G.t, phase:Math.random()*10,
   };
@@ -1981,7 +2037,7 @@ function currentPool() {
 function spawning(dt) {
   const m = G.t/60;
   // a calmer first minute (10 -> 34 wild Pokémon), then the usual ramp
-  const target = Math.min(340, (m < 1 ? 10 + m*24 : 14 + m*20) * REGIONS[G.region].crowd);
+  const target = Math.min(twist('horde') ? 480 : 340, (m < 1 ? 10 + m*24 : 14 + m*20) * REGIONS[G.region].crowd * (twist('horde') ? 1.5 : 1));
   G.spawnT -= dt;
   if (G.spawnT <= 0) {
     G.spawnT = .2;
@@ -1996,7 +2052,7 @@ function spawning(dt) {
   }
   // shiny elite
   if (G.t >= G.nextElite) {
-    G.nextElite = G.t + 45 + Math.random()*20;
+    G.nextElite = G.t + (twist('shiny') ? 20 : 45 + Math.random()*20);
     const pool = currentPool(), sp = pool[(Math.random()*pool.length)|0];
     const [x, y] = spawnRingPos();
     const e = makeEnemy(sp, x, y);
@@ -2628,7 +2684,7 @@ function runInfo() {
   return {
     t:G.t, won:G.won, bosses:G.bosses, starter:G.starterKey, stage:P.stage, movesEvolved:G.movesEvolved, moves:G.moves.length,
     caught:G.caught, allies:G.allies.length, hit4:G.hit4, kills:G.kills, level:G.level, cleanT:G.t - G.lastHurt, region:G.region,
-    shiny:!!P.shiny, allyEvolved:G.allyEvolved || 0,
+    shiny:!!P.shiny, allyEvolved:G.allyEvolved || 0, daily:!!G.daily,
     newTypeMove:G.moves.some(m => ['pinMissile', 'darkPulse', 'dragonPulse', 'dazzlingGleam', 'gyroBall'].includes(m.key)),
   };
 }
@@ -2681,18 +2737,21 @@ async function renderLB() {
     $('lbBody').innerHTML = rows.length ? rows.map((s, i) => lbRow(s, i, G && G.entry === s)).join('') : lbMessage('No runs yet. Go play!');
     return;
   }
-  $('lbNote').textContent = 'Top 25 trainers worldwide.';
+  const D = dailyFor(), isDaily = lbMode === 'daily';
+  $('lbNote').textContent = isDaily
+    ? `Today's Daily Challenge: ${REGIONS[D.region].name} · ${STARTERS[D.starter].stages[0][1]} · ${TWISTS[D.twist].name}. Resets in ${timeToNextDaily()}.`
+    : 'Top 25 trainers worldwide (regular runs).';
   $('lbBody').innerHTML = lbMessage('Loading…');
-  const req = ++lbReq;
+  const req = ++lbReq, mode = lbMode;
   try {
-    const rows = await Online.top(f);
-    if (req !== lbReq || lbMode !== 'world') return; // a newer request or tab switch won
+    const rows = await Online.top(isDaily ? 'all' : f, 25, isDaily ? D.date : null);
+    if (req !== lbReq || lbMode !== mode) return; // a newer request or tab switch won
     const mine = new Set(Save.data.myOnline || []);
     $('lbBody').innerHTML = rows.length
       ? rows.map((s, i) => lbRow({ ...s, id:s.mon_id }, i, mine.has(s.id))).join('')
-      : lbMessage('No scores yet. Be the first!');
+      : lbMessage(isDaily ? 'Nobody has played today\'s challenge yet. Be the first!' : 'No scores yet. Be the first!');
   } catch (e) {
-    if (req === lbReq) $('lbBody').innerHTML = lbMessage("Couldn't reach the world leaderboard. Check your connection.");
+    if (req === lbReq) $('lbBody').innerHTML = lbMessage(e.noDaily ? 'The daily leaderboard is coming soon.' : "Couldn't reach the world leaderboard. Check your connection.");
   }
 }
 
@@ -2712,11 +2771,13 @@ async function postScore(auto) {
     (Save.data.myOnline = Save.data.myOnline || []).push(row.id);
     Save.write();
     $('postBtn').textContent = 'Posted!'; $('nameIn').disabled = true;
-    const rank = await Online.rank(e.score).catch(() => 0);
-    $('postNote').textContent = rank ? `World rank #${rank.toLocaleString()}` : 'Posted to the world leaderboard.';
+    const rank = await Online.rank(e.score, e.daily && row.daily ? e.daily : null).catch(() => 0);
+    $('postNote').textContent = rank ? `${e.daily && row.daily ? "Today's Daily Challenge" : 'World'} rank #${rank.toLocaleString()}` : 'Posted to the world leaderboard.';
   } catch (err) {
     $('postBtn').disabled = false;
-    $('postNote').textContent = err.rejectedName ? "The leaderboard didn't accept that name. Please pick a different one."
+    if (err.noDaily) $('postBtn').disabled = true;
+    $('postNote').textContent = err.noDaily ? "The Daily Challenge leaderboard isn't open yet, so this run was saved on this device only."
+      : err.rejectedName ? "The leaderboard didn't accept that name. Please pick a different one."
       : err.rateLimited ? 'Posting too fast. Wait a few seconds and press Post again.'
       : err.implausible ? "The leaderboard couldn't verify this score, so it wasn't posted."
       : "Couldn't post your score. Check your connection and try again.";
@@ -2732,7 +2793,7 @@ function closeOverlay() {
 }
 document.querySelectorAll('[data-close]').forEach(b => b.onclick = () => { b.closest('.screen').classList.add('hidden'); renderTitle(); });
 $('lbBtn').onclick = () => openScreen('lbScreen');
-$('endLbBtn').onclick = () => { lbMode = Online.on ? 'world' : 'local'; openScreen('lbScreen'); };
+$('endLbBtn').onclick = () => { lbMode = Online.on ? (G && G.daily ? 'daily' : 'world') : 'local'; openScreen('lbScreen'); };
 $('achBtn').onclick = () => openScreen('achScreen');
 $('syncBtn').onclick = () => { renderSync(); $('syncScreen').classList.remove('hidden'); };
 $('martBtn').onclick = () => { renderMart(); $('martScreen').classList.remove('hidden'); };
@@ -2874,10 +2935,10 @@ function endGame(won) {
   const S = Save.data, R = REGIONS[G.region], next = REGIONS[G.region + 1];
   let unlockedNow = false;
   if (won) {
-    Stats.event(`win/${R.key}`);
+    Stats.event(G.daily ? `dailywin/${G.daily.date}` : `win/${R.key}`);
     S.wins[G.starterKey] = true;
-    S.regionWins[R.key] = true;
-    if (next && S.unlocked < next.index) { S.unlocked = next.index; unlockedNow = true; }
+    // the Daily Challenge doesn't unlock regions (it can visit ones you haven't reached)
+    if (!G.daily) { S.regionWins[R.key] = true; if (next && S.unlocked < next.index) { S.unlocked = next.index; unlockedNow = true; } }
   }
   checkAch();
   S.totalKills += G.kills;
@@ -2885,6 +2946,13 @@ function endGame(won) {
   S.earned[S.device] = (S.earned[S.device] || 0) + earnedNow;
   const score = calcScore();
   const entry = { name:NameFilter.safe(S.settings.name), starter:G.starterKey, region:G.region, id:P.id, mon:P.name, shiny:!!P.shiny, score, t:Math.floor(G.t), level:G.level, kills:G.kills, won, date:Date.now() };
+  if (G.daily) {
+    entry.daily = G.daily.date;
+    S.daily = S.daily || {};
+    S.daily[G.daily.date] = Math.max(S.daily[G.daily.date] || 0, score);
+    for (const d of Object.keys(S.daily).sort().slice(0, -30)) delete S.daily[d]; // keep the last 30 days
+    checkAch();
+  }
   S.scores.push(entry);
   S.scores.sort((a, b) => b.score - a.score);
   S.scores = S.scores.slice(0, 100);
@@ -2893,12 +2961,12 @@ function endGame(won) {
   Save.write();
   G.entry = entry;
   Sync.soon();
-  $('endTitle').textContent = won ? `${R.name} Champion!` : 'You blacked out!';
+  $('endTitle').textContent = G.daily ? (won ? 'Daily Challenge cleared!' : 'Daily Challenge over') : won ? `${R.name} Champion!` : 'You blacked out!';
   $('endSub').textContent = won
     ? `${P.name} defeated ${R.finalBoss}!` + (unlockedNow ? ` The ${next.name} region is now unlocked!` : !next ? ' You have conquered every region!' : '')
     : `${P.name} fainted in ${R.name}…`;
   const nb = $('nextBtn');
-  nb.classList.toggle('hidden', !(won && next));
+  nb.classList.toggle('hidden', !(won && next && !G.daily));
   if (next) { nb.textContent = `Travel to ${next.name}`; nb.onclick = () => { Save.data.settings.region = next.index; Save.write(); toTitle(); }; }
   $('endScore').textContent = score.toLocaleString() + ' pts';
   $('endMoney').textContent = `+₽${earnedNow.toLocaleString()} earned · ₽${pokeDollars().toLocaleString()} to spend at the Poké Mart`;
@@ -2933,6 +3001,15 @@ function renderTitle() {
   $('sndBtn').textContent = S.settings.muted ? 'Sound: Off' : 'Sound: On';
   $('martBtn').textContent = `Poké Mart ₽${pokeDollars().toLocaleString()}`;
   $('dexBtn').textContent = `Pokédex ${dexPercent()}%`;
+  // today's Daily Challenge
+  const D = dailyFor(), ds = STARTERS[D.starter], best = (S.daily || {})[D.date];
+  $('dailyCard').innerHTML = `<button class="daily" id="dailyPlay">
+    <img src="${monURL(ds.stages[0][0])}" alt="">
+    <div><b class="px">Daily Challenge</b>
+      <small>${REGIONS[D.region].name} · ${ds.stages[0][1]} · <b>${TWISTS[D.twist].name}</b>: ${TWISTS[D.twist].desc}</small>
+      <small>${best ? `Your best today: ${best.toLocaleString()} pts` : 'Not played yet today'} · New challenge in ${timeToNextDaily()}</small></div>
+    <span class="go">PLAY</span></button>`;
+  $('dailyPlay').onclick = () => { Sound.init(); newGame(D.starter, D); };
   $('regions').innerHTML = REGIONS.map((R, i) => {
     const locked = i > S.unlocked;
     return `<button class="rtab${i === titleRegion ? ' on' : ''}" data-r="${i}" ${locked ? 'disabled title="Beat the previous region to unlock"' : ''}>`
