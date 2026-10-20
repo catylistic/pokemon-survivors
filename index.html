@@ -598,7 +598,8 @@ const BOSS_SLOTS = [
   { t:360, hp:5000,  spd:50, dmg:30, r:50, xp:300 },
   { t:540, hp:9000,  spd:75, dmg:32, r:50, xp:500 },
   { t:720, hp:15000, spd:85, dmg:36, r:46, xp:800 },
-  { t:900, hp:25000, spd:95, dmg:40, r:44, xp:0, final:true },
+  // the final legendary: a longer fight that hits softer (real runs ended it in 14-26 s, or died in 18 s)
+  { t:900, hp:60000, spd:95, dmg:22, r:44, xp:0, final:true },
 ];
 const SWARMS = [150, 330, 510, 690, 870];
 const TANKY = ['rock', 'steel', 'ground'], QUICK = ['flying', 'electric', 'dark'];
@@ -1665,6 +1666,8 @@ function newGame(starterKey) {
     Sound.sfx('shiny');
     emit(P.x, P.y - P.r, 30, { color:Math.random() < .5 ? '#fff8a0' : '#ffffff', spread:200, life:.9, size:4, add:true, drag:2 });
   } else banner(`Go! ${P.name}!`);
+  // the first couple of runs: remind new players that candy is how you level up
+  if (Save.data.runs <= 2) setTimeout(() => { if (G && G.running && G.t < 30) banner('Tip: walk over the Exp. Candy that fainted Pokémon drop to level up!', 5); }, 6000);
   // animations from another region aren't needed any more: free their memory
   if (G.region !== lastAnimRegion) { animCache = {}; animQueue.length = 0; lastAnimRegion = G.region; }
 }
@@ -1683,7 +1686,7 @@ function recalc() {
     crit: .05 + .07*I('scopeLens'),
     armor: Math.min(.7, 1 - (1 - Math.min(.6, (fullyEvolved ? .05 : .1) * I('eviolite'))) * (1 - .05*M('iron'))),
     regen: .6*I('leftovers'),
-    pickup: 70 * (1 + .3*I('expShare')) * (1 + .15*M('itemfinder')),
+    pickup: 85 * (1 + .3*I('expShare')) * (1 + .15*M('itemfinder')),
   };
 }
 
@@ -1977,7 +1980,8 @@ function currentPool() {
 }
 function spawning(dt) {
   const m = G.t/60;
-  const target = Math.min(340, (14 + m*20) * REGIONS[G.region].crowd);
+  // a calmer first minute (10 -> 34 wild Pokémon), then the usual ramp
+  const target = Math.min(340, (m < 1 ? 10 + m*24 : 14 + m*20) * REGIONS[G.region].crowd);
   G.spawnT -= dt;
   if (G.spawnT <= 0) {
     G.spawnT = .2;
@@ -2217,7 +2221,7 @@ function bossAttack(e, dt) {
   e.flash = .12; // the boss rears up as it attacks
   emit(e.x, e.y - e.r*.6, 16, { color:TC[t], spread:220, life:.4, size:4, add:GLOW.has(t), drag:4 });
   if (e.final) {
-    e.atkT = 1.8;
+    e.atkT = 2.2;
     if (e.atkN % 2) ring(e, 18, 170, dmg, t);
     else { const a = Math.atan2(P.y - e.y, P.x - e.x); for (let i = -2; i <= 2; i++) eshoot(e, a + i*.16, 300, dmg, t); }
   } else {
