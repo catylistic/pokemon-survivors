@@ -256,7 +256,7 @@
     <div class="namerow"><label for="nameIn">Trainer name</label><input id="nameIn" maxlength="14" autocomplete="off"><button class="btn2" id="postBtn">Post to world leaderboard</button></div>
     <p class="sub" id="postNote"></p>
     <div class="stats" id="endStats"></div>
-    <div class="row"><button class="btn" id="nextBtn">Next region</button><button class="btn" id="againBtn">Play again</button><button class="btn2" id="endLbBtn">Leaderboard</button></div>
+    <div class="row"><button class="btn" id="nextBtn">Next region</button><button class="btn" id="againBtn">Play again</button><button class="btn2" id="shareBtn">Share card</button><button class="btn2" id="endLbBtn">Leaderboard</button></div>
   </div>
 </div>
 
@@ -3240,6 +3240,65 @@ function endGame(won) {
   $('end').classList.remove('hidden');
   Sound.music(won ? 'victory' : 'gameover');
 }
+// ---- shareable result card: a 1200x630 picture of the run ----
+const GAME_URL = 'https://catylistic.github.io/pokemon-survivors/';
+function loadPic(url) { // fetched as a blob so the canvas isn't tainted and can be saved
+  return fetch(url).then(r => { if (!r.ok) throw new Error(r.status); return r.blob(); }).then(createImageBitmap).catch(() => null);
+}
+async function makeCard() {
+  const R = REGIONS[G.region], e = G.entry, s = e.t, W2 = 1200, H2 = 630;
+  const c = document.createElement('canvas'); c.width = W2; c.height = H2;
+  const x = c.getContext('2d'); x.imageSmoothingEnabled = false;
+  try { await document.fonts.load('20px "Press Start 2P"'); } catch {}
+  const col = TC[P.types[0]] || '#6390F0';
+  // backdrop: type colour fading to night, with a Game Boy style grass checker along the bottom
+  const g = x.createLinearGradient(0, 0, 0, H2); g.addColorStop(0, col); g.addColorStop(1, '#141a2a');
+  x.fillStyle = g; x.fillRect(0, 0, W2, H2);
+  for (let i = 0; i < W2/30; i++) for (let j = 0; j < 3; j++) { x.fillStyle = (i + j) % 2 ? '#2f6a38' : '#3a7f44'; x.fillRect(i*30, H2 - 90 + j*30, 30, 30); }
+  x.fillStyle = 'rgba(255,255,255,.94)'; roundRect(x, 40, 40, W2 - 80, H2 - 150, 22); x.fill();
+  x.strokeStyle = '#202838'; x.lineWidth = 6; x.stroke();
+  // the starter, big and pixelated
+  const pics = await Promise.all([loadPic(monURL(P.id, P.shiny)), ...G.allies.map(a => loadPic(monURL(a.id, a.shiny !== false)))]);
+  x.fillStyle = col + '33'; x.beginPath(); x.arc(225, 260, 150, 0, Math.PI*2); x.fill();
+  if (pics[0]) x.drawImage(pics[0], 225 - 160, 260 - 160, 320, 320);
+  if (P.shiny) { x.fillStyle = '#e8b000'; x.font = '18px "Press Start 2P"'; x.textAlign = 'center'; x.fillText('★ SHINY', 225, 448); }
+  // words
+  const px = (sz, color) => { x.font = `${sz}px "Press Start 2P"`; x.fillStyle = color; x.textAlign = 'left'; x.textBaseline = 'alphabetic'; };
+  px(16, '#5a6478'); x.fillText('POKéMON SURVIVORS' + (G.daily ? ` · DAILY ${G.daily.date}` : ''), 420, 100);
+  px(30, e.won ? '#1f8a3a' : '#c03030'); x.fillText(G.daily ? (e.won ? 'Daily cleared!' : 'Daily Challenge') : e.won ? `${R.name} Champion!` : `Fainted in ${R.name}`, 420, 152);
+  px(56, '#e8442a'); x.fillText(e.score.toLocaleString(), 420, 236);
+  const sw = x.measureText(e.score.toLocaleString()).width;
+  px(22, '#e8442a'); x.fillText('pts', 436 + sw, 236);
+  const rows = [['Pokémon', `${P.name} Lv ${G.level}`], ['Time', `${Math.floor(s/60)}:${String(s%60).padStart(2, '0')}`], ['KOs', G.kills.toLocaleString()],
+    G.daily ? ['Twist', TWISTS[G.daily.twist].name] : ['Ability', abilityName(P.starter)]];
+  if (G.legendsCaught) rows.push(['Legends', `${G.legendsCaught} caught`]);
+  rows.forEach(([a, b], i) => { const y = 282 + i*30; px(15, '#5a6478'); x.fillText(a, 420, y); px(15, '#202838'); x.fillText(b, 600, y); });
+  // the party along the bottom of the card
+  G.allies.forEach((a, i) => { const p = pics[i + 1], ax = 430 + i*92; x.fillStyle = a.legendary ? '#e8d4ff' : '#eef1f6'; roundRect(x, ax, 420, 80, 80, 12); x.fill(); if (p) x.drawImage(p, ax - 4, 416, 88, 88); });
+  px(14, '#ffffff'); x.textAlign = 'center'; x.fillText('Can you beat it?  ' + GAME_URL.replace('https://', ''), W2/2, H2 - 34);
+  return new Promise(r => c.toBlob(r, 'image/png'));
+}
+function roundRect(x, a, b, w, h, r) { x.beginPath(); x.moveTo(a + r, b); x.arcTo(a + w, b, a + w, b + h, r); x.arcTo(a + w, b + h, a, b + h, r); x.arcTo(a, b + h, a, b, r); x.arcTo(a, b, a + w, b, r); x.closePath(); }
+async function shareCard() {
+  const btn = $('shareBtn'); btn.disabled = true; btn.textContent = 'Making card…';
+  const R = REGIONS[G.region], e = G.entry;
+  const text = `I scored ${e.score.toLocaleString()} pts with ${P.name}${P.shiny ? ' (shiny!)' : ''} ${G.daily ? `in the ${G.daily.date} Daily Challenge` : e.won ? `and beat ${R.name}` : `in ${R.name}`} on Pokémon Survivors! Can you beat it?`;
+  try {
+    const blob = await makeCard(), file = new File([blob], 'pokemon-survivors.png', { type:'image/png' });
+    if (navigator.canShare && navigator.canShare({ files:[file] })) {
+      await navigator.share({ files:[file], text, url:GAME_URL }).catch(err => { if (err.name !== 'AbortError') throw err; });
+    } else { // desktop: save the picture and copy the brag text
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      let copied = false; try { await navigator.clipboard.writeText(`${text} ${GAME_URL}`); copied = true; } catch {}
+      showNote(copied ? 'Card saved, and the caption is copied. Paste it with the picture!' : 'Card saved to your downloads.');
+    }
+    Stats.event('share');
+  } catch (err) { console.warn(err); showNote("Couldn't make the card on this device."); }
+  btn.disabled = false; btn.textContent = 'Share card';
+}
+$('shareBtn').onclick = shareCard;
+
 function toTitle() {
   if (G && G.entry && !G.running) postScore(true); // finished runs are posted when you leave the results screen
   G = null; P = null;
