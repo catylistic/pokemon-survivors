@@ -86,6 +86,8 @@
   .card .best{font-size:11px;color:#b07800;font-weight:700;min-height:14px}
   #pauseBtn{position:absolute;right:12px;top:62px;pointer-events:auto;width:40px;height:36px;font-size:11px;background:var(--paper);color:var(--ink);border:3px solid var(--line);border-radius:8px;cursor:pointer;box-shadow:0 3px 0 rgba(0,0,0,.3)}
   .padfocus{outline:4px solid #e3350d!important;outline-offset:3px}
+  #jumpBtn{position:absolute;right:22px;bottom:90px;pointer-events:auto;width:84px;height:84px;border-radius:50%;font-size:11px;background:rgba(248,248,240,.85);color:var(--ink);border:4px solid var(--line);box-shadow:0 4px 0 rgba(0,0,0,.3);touch-action:none}
+  #jumpBtn:active{transform:translateY(3px)}
   #toasts{position:fixed;right:12px;top:108px;display:flex;flex-direction:column;gap:8px;z-index:20;pointer-events:none}
   .toast{background:var(--paper);border:3px solid var(--line);border-radius:10px;padding:8px 12px;display:flex;gap:10px;align-items:center;box-shadow:0 4px 0 rgba(0,0,0,.3);animation:tin .35s ease-out;max-width:300px}
   .toast b,.ach b{display:block;font-size:13px}
@@ -142,6 +144,7 @@
   <div id="kills" class="px">KO 0</div>
   <div id="score" class="px">0</div>
   <button id="pauseBtn" class="px" aria-label="Pause">II</button>
+  <button id="jumpBtn" class="px hidden">JUMP</button>
   <div id="loadout"><div class="lrow" id="lmoves"></div><div class="lrow" id="litems"></div><div class="lrow" id="lallies"></div></div>
   <div id="bossbar" class="hidden"><div id="bossname" class="px"></div><div class="bar"><div id="bossfill"></div></div></div>
   <div id="banner" class="px"></div>
@@ -155,6 +158,7 @@
       <button class="btn2" id="lbBtn">Leaderboard</button>
       <button class="btn2" id="achBtn">Achievements</button>
       <button class="btn2 ghost" id="sndBtn">Sound: On</button>
+      <button class="btn2 ghost" id="viewBtn">View: 2D</button>
     </div>
     <div id="regions"></div>
     <p class="sub" id="regionInfo"></p>
@@ -165,6 +169,7 @@
       <div><b>STAB:</b> moves that share your Pokémon's type do 1.5× damage.</div>
       <div><b>Evolve:</b> you evolve at Lv 12 and Lv 28. Max a move to Lv 6 while holding its type item to unlock its evolved form.</div>
       <div><b>Shiny Pokémon</b> drop Poké Balls. Grab one to catch it as an ally (up to 4). Your own starter has a 1 in 50 chance to be shiny!</div>
+      <div><b>3D mode:</b> switch with the View button. Space / A / JUMP to jump over enemies. Turn the camera by dragging (mouse or right side of the screen), Q / E, or the right stick.</div>
       <div><b>Pause:</b> Esc, P, the II button or Start. Pick level-up options with 1 / 2 / 3 (or the stick + A). <b>M</b> mutes sound.</div>
       <div style="grid-column:1/-1;font-size:11px;color:#8a94a8">Unofficial, non-commercial fan game. Pokémon © Nintendo / Game Freak / The Pokémon Company. Anonymous visit counts only: no cookies, nothing personal.</div>
     </div>
@@ -186,6 +191,7 @@
       <label>Music <input type="range" id="volMusic" min="0" max="1" step="0.05"></label>
       <label>Effects <input type="range" id="volSfx" min="0" max="1" step="0.05"></label>
     </div>
+    <div class="row" style="margin-bottom:12px"><button class="btn2" id="viewBtnPause">Switch to 3D</button></div>
     <button class="btn" id="resumeBtn">Resume</button>
     <p style="margin:14px 0 0"><a href="#" id="quitBtn" style="color:#4a5468;font-size:13px">Quit to title</a></p>
   </div>
@@ -1077,6 +1083,7 @@ const ACHIEVEMENTS = [
   { id:'six',      name:'Full Moveset',           desc:'Know 6 moves at once.',                    test:r => r.moves >= 6 },
   { id:'catch',    name:'Gotcha!',                desc:'Catch a shiny Pokémon.',                   test:r => r.caught >= 1 },
   { id:'party',    name:'Full Party',             desc:'Have 4 allies at once.',                   test:r => r.allies >= 4 },
+  { id:'allyEvo',  name:'Growing Together',       desc:'Watch one of your allies evolve.',         test:r => r.allyEvolved >= 1 },
   { id:'x4',       name:"It's Super Effective!!", desc:'Land a 4× super effective hit.',          test:r => r.hit4 },
   { id:'ko1k',     name:'Wild Battle Pro',        desc:'KO 1,000 Pokémon in one run.',             test:r => r.kills >= 1000 },
   { id:'ko5k',     name:'Unstoppable',            desc:'KO 5,000 Pokémon in one run.',             test:r => r.kills >= 5000 },
@@ -1257,6 +1264,7 @@ addEventListener('keydown', e => {
   Sound.init();
   keys[e.key.toLowerCase()] = true;
   if (e.key.toLowerCase() === 'm') { toggleMute(); return; }
+  if (e.key === ' ' && V3.on && G && G.running && !G.paused && !G.choosing) { e.preventDefault(); jump(); return; }
   if (e.key === 'Escape' && closeOverlay()) return;
   if (!G) return;
   if (G.choosing && /^[1-4]$/.test(e.key)) { const b = document.querySelectorAll('.choice')[+e.key - 1]; if (b) b.click(); return; }
@@ -1271,19 +1279,32 @@ addEventListener('pointerdown', () => Sound.init());
 const STICK_R = 56;
 let stick = null, touchUsed = false;
 const capture = id => { try { cv.setPointerCapture(id); } catch (e) {} };
+// In 3D, dragging the mouse (or a thumb on the right half of a touch screen) turns the camera.
 cv.addEventListener('pointerdown', e => {
+  if (V3.on && (e.pointerType === 'mouse' || (e.clientX > W/2 && !V3.look))) {
+    if (e.pointerType !== 'mouse') touchUsed = true;
+    V3.look = { id:e.pointerId, x:e.clientX, y:e.clientY }; capture(e.pointerId); updateViewButtons(); return;
+  }
   if (e.pointerType === 'mouse') { pointer = { x:e.clientX, y:e.clientY }; capture(e.pointerId); return; }
-  touchUsed = true;
+  if (!touchUsed) { touchUsed = true; updateViewButtons(); }
   if (!stick) { stick = { id:e.pointerId, ox:e.clientX, oy:e.clientY, x:e.clientX, y:e.clientY }; capture(e.pointerId); }
 });
 cv.addEventListener('pointermove', e => {
+  if (V3.look && e.pointerId === V3.look.id) {
+    V3.yaw += (e.clientX - V3.look.x)*.006;
+    V3.pitch = Math.max(.18, Math.min(1.2, V3.pitch + (e.clientY - V3.look.y)*.004));
+    V3.look.x = e.clientX; V3.look.y = e.clientY; return;
+  }
   if (e.pointerType === 'mouse') { if (pointer) { pointer.x = e.clientX; pointer.y = e.clientY; } return; }
   if (!stick || e.pointerId !== stick.id) return;
   stick.x = e.clientX; stick.y = e.clientY;
   const dx = stick.x - stick.ox, dy = stick.y - stick.oy, d = Math.hypot(dx, dy);
   if (d > STICK_R) { stick.ox = stick.x - dx/d*STICK_R; stick.oy = stick.y - dy/d*STICK_R; } // base follows the thumb
 });
-const endPointer = e => { if (e.pointerType === 'mouse') pointer = null; else if (stick && e.pointerId === stick.id) stick = null; };
+const endPointer = e => {
+  if (V3.look && e.pointerId === V3.look.id) { V3.look = null; return; }
+  if (e.pointerType === 'mouse') pointer = null; else if (stick && e.pointerId === stick.id) stick = null;
+};
 cv.addEventListener('pointerup', endPointer);
 cv.addEventListener('pointercancel', endPointer);
 
@@ -1382,6 +1403,7 @@ function pollPad(dt) {
   } else {
     Pad.move = [x, y];
     if (hit(9) && G && G.running && !G.choosing) togglePause();
+    if (hit(0)) jump(); // A jumps in 3D
   }
   Pad.prev = gp.buttons.map(b => b.pressed);
 }
@@ -1396,8 +1418,9 @@ function newGame(starterKey) {
   const st = STARTERS[starterKey];
   P = {
     starter: st, stage: 0, x: 0, y: 0, r: 16, fx: 1, fy: 0, dirX: 1, up: false,
-    baseHp: st.hp, maxHp: st.hp, hp: st.hp, baseSpd: st.spd, inv: 0, hurt: 0, evoT: 0, prevId: 0,
+    baseHp: st.hp, maxHp: st.hp, hp: st.hp, baseSpd: st.spd, inv: 0, hurt: 0, evoT: 0, prevId: 0, z: 0, vz: 0,
   };
+  V3.chunk = null;
   P.id = st.stages[0][0]; P.name = st.stages[0][1]; P.types = st.types[0];
   G = {
     running: true, paused: false, choosing: false, t: 0, uid: 0,
@@ -1797,7 +1820,16 @@ function update(dt) {
 }
 
 function updatePlayer(dt) {
-  const [mx, my] = moveInput();
+  let [mx, my] = moveInput();
+  if (V3.on) { // in 3D, "up" means away from the camera
+    const f0 = Math.cos(V3.yaw), f1 = Math.sin(V3.yaw), fwd = -my, rt = mx;
+    mx = f0*fwd - f1*rt; my = f1*fwd + f0*rt;
+  }
+  // jumping (3D)
+  if (P.z > 0 || P.vz > 0) {
+    P.vz -= 1500*dt; P.z += P.vz*dt;
+    if (P.z <= 0) { P.z = 0; P.vz = 0; emit(P.x, P.y + P.r*.6, 6, { color:'rgba(200,190,160,.6)', spread:80, life:.4, size:7, shape:'puff' }); }
+  }
   const len = Math.hypot(mx, my);
   if (len > .01) {
     P.x += mx * G.stat.speed * dt; P.y += my * G.stat.speed * dt;
@@ -1819,7 +1851,50 @@ function updatePlayer(dt) {
     const rr = P.r + e.r*.75;
     if ((e.x - P.x)**2 + (e.y - P.y)**2 < rr*rr && (!worst || e.dmg > worst.dmg)) worst = e;
   }
-  if (worst) hurtPlayer(worst.dmg, worst.types[0]);
+  if (worst && P.z < 18) hurtPlayer(worst.dmg, worst.types[0]); // jumping clears wild Pokémon
+}
+
+/* Ally evolution. Allies level up with you; their real evolution line comes from PokeAPI.
+   A level-up evolution happens at its real level; stone, trade or friendship evolutions
+   happen 10 levels after the last change. Branching lines (Eevee, Gloom...) pick one at random. */
+const pokeApiCache = {};
+const pokeApi = path => pokeApiCache[path] || (pokeApiCache[path] = fetch('https://pokeapi.co/api/v2/' + path).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }));
+const idFromUrl = url => +url.split('/').filter(Boolean).pop();
+async function monInfo(id) {
+  const [sp, mon] = await Promise.all([pokeApi(`pokemon-species/${id}/`), pokeApi(`pokemon/${id}/`)]);
+  const en = sp.names.find(n => n.language.name === 'en');
+  return { id, name:en ? en.name : sp.name, types:mon.types.sort((a, b) => a.slot - b.slot).map(t => t.type.name) };
+}
+// work out what this ally evolves into next (if anything) and at what level
+async function prepareAllyEvolution(a) {
+  a.next = null;
+  try {
+    const sp = await pokeApi(`pokemon-species/${a.id}/`);
+    const chain = await pokeApi(sp.evolution_chain.url.replace('https://pokeapi.co/api/v2/', ''));
+    const find = node => idFromUrl(node.species.url) === a.id ? node : node.evolves_to.map(find).find(Boolean);
+    const node = find(chain.chain);
+    if (!node || !node.evolves_to.length) return;
+    const branch = node.evolves_to[(Math.random()*node.evolves_to.length)|0];
+    const nextId = idFromUrl(branch.species.url);
+    const minLevel = (branch.evolution_details[0] || {}).min_level;
+    const info = await monInfo(nextId);
+    if (!G || !G.allies.includes(a)) return;
+    a.next = { ...info, at:minLevel ? Math.max(minLevel, a.level + 1) : a.level + 10 };
+  } catch (e) { /* offline or unknown: this ally just won't evolve */ }
+}
+function allyLevelUp(a) {
+  a.level++;
+  if (a.next && a.level >= a.next.at) {
+    const old = a.name;
+    a.prevId = a.id; a.id = a.next.id; a.name = a.next.name; a.types = a.next.types; a.stage++;
+    a.evoT = 1.2; a.next = null;
+    G.allyEvolved = (G.allyEvolved || 0) + 1;
+    banner(`What? Shiny ${old} is evolving! ... It evolved into ${a.name}!`, 3.5);
+    Sound.sfx('evolve');
+    emit(a.x, a.y - 12, 30, { color:Math.random() < .5 ? '#ffffff' : '#fff4b0', spread:200, life:.8, size:4, add:true, drag:2 });
+    renderLoadout();
+    prepareAllyEvolution(a);
+  }
 }
 
 function updateAllies(dt) {
@@ -1828,14 +1903,19 @@ function updateAllies(dt) {
     const dx = tp[0] - a.x, dy = tp[1] - a.y;
     a.x += dx * Math.min(1, dt*8); a.y += dy * Math.min(1, dt*8);
     if (Math.abs(dx) > 1) a.dirX = dx;
-    a.cd -= dt;
+    a.cd -= dt; a.evoT = (a.evoT || 0) - dt;
     if (a.cd <= 0) {
-      a.cd = 1.1 * G.stat.cd;
+      // stronger, faster and more shots with each evolution; uses its newest type
+      const stage = a.stage || 0;
+      a.cd = 1.1 * G.stat.cd * (1 - .12*stage);
       const t = nearestEnemy(a.x, a.y, 450);
       if (t) {
         const ang = Math.atan2(t.y - a.y, t.x - a.x);
-        const dmg = (6 + G.level*1.5) * (1 + .1*(G.items.muscleBand || 0));
-        shoot({ x:a.x, y:a.y, vx:Math.cos(ang)*400, vy:Math.sin(ang)*400, r:6, dmg, type:a.types[0], src:'ally', srcTypes:a.types, life:1.4, kind:'orb' });
+        const dmg = (6 + (a.level || G.level)*1.5) * (1 + .35*stage) * (1 + .1*(G.items.muscleBand || 0));
+        for (let s = 0; s <= stage; s++) {
+          const sa = ang + (s - stage/2)*.2;
+          shoot({ x:a.x, y:a.y, vx:Math.cos(sa)*400, vy:Math.sin(sa)*400, r:6 + stage, dmg, type:a.types[0], src:'ally', srcTypes:a.types, life:1.4, kind:'orb' });
+        }
       }
     }
   });
@@ -1964,7 +2044,7 @@ function updateEProjs(dt) {
     if (Math.random() < 12*dt) emit(p.x, p.y, 1, { color:TC[p.type], spread:15, life:.3, size:4, add:GLOW.has(p.type) });
     if (p.life <= 0) { p.dead = true; continue; }
     const rr = p.r + P.r*.8;
-    if ((p.x - P.x)**2 + (p.y - P.y)**2 < rr*rr) { hurtPlayer(p.dmg, p.type); p.dead = true; }
+    if (P.z < 28 && (p.x - P.x)**2 + (p.y - P.y)**2 < rr*rr) { hurtPlayer(p.dmg, p.type); p.dead = true; }
   }
 }
 
@@ -2040,7 +2120,9 @@ function collect(k) {
     for (let i = 0; i < 3; i++) gainXp(G.xpNext - G.xp + .01);
   } else if (k.kind === 'ball') {
     if (G.allies.length < 4) {
-      G.allies.push({ ...k.mon, x:k.x, y:k.y, cd:.5, dirX:1 });
+      const ally = { ...k.mon, x:k.x, y:k.y, cd:.5, dirX:1, level:G.level, stage:0, evoT:0 };
+      G.allies.push(ally);
+      prepareAllyEvolution(ally);
       G.caught++; Sound.sfx('catch');
       banner(`Gotcha! Shiny ${k.mon.name} was caught!`);
       renderLoadout();
@@ -2058,6 +2140,7 @@ function gainXp(v) {
   G.xp += v;
   while (G.xp >= G.xpNext) {
     G.xp -= G.xpNext; G.level++; G.xpNext = xpFor(G.level); G.pending++;
+    for (const a of G.allies) allyLevelUp(a);
     const nextStage = EVO_LEVELS.indexOf(G.level) + 1;
     if (nextStage > 0 && nextStage < P.starter.stages.length && P.stage < nextStage) evolve(nextStage);
   }
@@ -2177,7 +2260,7 @@ function renderLoadout() {
     return `<span class="mv${m.evo ? ' evo' : ''}" style="background:${TC[d.type]}">${m.evo ? d.evo.name : d.name} ${m.lvl}</span>`;
   }).join('');
   $('litems').innerHTML = Object.entries(G.items).map(([k, l]) => `<div class="it" title="${ITEMS[k].name}"><img src="${itemURL(ITEMS[k].sprite)}" alt=""><span>${l}</span></div>`).join('');
-  $('lallies').innerHTML = G.allies.map(a => `<div class="it" title="Shiny ${a.name}"><img src="${monURL(a.id, true)}" alt=""></div>`).join('');
+  $('lallies').innerHTML = G.allies.map(a => `<div class="it" title="Shiny ${esc(a.name)}, Lv ${a.level}${a.next ? ` (evolves at Lv ${a.next.at})` : ''}"><img src="${monURL(a.id, true)}" alt=""><span>${a.level}</span></div>`).join('');
 }
 let lastPortrait = 0;
 function updateHUD(dt) {
@@ -2206,7 +2289,7 @@ function statRows() {
   return [
     ['Pokémon', P.name], ['Level', G.level], ['Time', `${Math.floor(s/60)}:${String(s%60).padStart(2, '0')}`], ['KOs', G.kills],
     ['Moves', G.moves.map(m => m.evo ? MOVES[m.key].evo.name : MOVES[m.key].name).join(', ')],
-    ['Allies', G.allies.map(a => a.name).join(', ') || '—'],
+    ['Allies', G.allies.map(a => `${a.name} Lv ${a.level}`).join(', ') || '—'],
   ].map(([a, b]) => `<div><span>${a}</span><b>${b}</b></div>`).join('');
 }
 function togglePause() {
@@ -2246,7 +2329,7 @@ function runInfo() {
   return {
     t:G.t, won:G.won, bosses:G.bosses, starter:G.starterKey, stage:P.stage, movesEvolved:G.movesEvolved, moves:G.moves.length,
     caught:G.caught, allies:G.allies.length, hit4:G.hit4, kills:G.kills, level:G.level, cleanT:G.t - G.lastHurt, region:G.region,
-    shiny:!!P.shiny,
+    shiny:!!P.shiny, allyEvolved:G.allyEvolved || 0,
     newTypeMove:G.moves.some(m => ['pinMissile', 'darkPulse', 'dragonPulse', 'dazzlingGleam', 'gyroBall'].includes(m.key)),
   };
 }
@@ -2534,6 +2617,8 @@ function tilesFor(R) {
   // tall grass, plus a rustling frame with the blade tips leaning over
   T.tall = [pixTile(TALL_ROWS, pal, th.base), pixTile(TALL_ROWS.map((r, i) => i % 8 < 3 ? shiftRow(r, 1) : r), pal, th.base)];
   T.tips = pixTile(TALL_ROWS.slice(0, 6), pal);   // drawn over feet standing in tall grass
+  T.tallCut = pixTile(TALL_ROWS, { ...pal, '.':null }); // see-through tall grass for 3D tufts
+  T.pal = pal;
   // flowers in both of the region's colours, two sway frames each
   T.flower = th.fl.map(fc => [0, 1].map(f => pixTile(FLOWER_ROWS.map(r => f && /[Fy]/.test(r) ? shiftRow(r, 1) : r), { ...pal, F:fc }, th.base)));
   T.rock = pixTile(ROCK_ROWS, pal, th.base);
@@ -2595,30 +2680,37 @@ function cellKind(gx, gy) {
 }
 const feetCell = (x, y) => cellKind(Math.floor(x/TILE), Math.floor(y/TILE));
 
-function drawGround(cx, cy) {
-  const R = REGIONS[G ? G.region : titleRegion], T = tilesFor(R);
-  cx = Math.round(cx); cy = Math.round(cy);
+// Paint map cells gx0..gx1 × gy0..gy1 onto a canvas context: cell (gx, gy) lands at
+// (ox + (gx - gx0)*size, oy + (gy - gy0)*size). opts.rustle: [gx, gy] of rustling tall grass.
+// opts.flatRocks: draw rocks into the ground (2D) instead of leaving them to 3D models.
+function paintCells(c, gx0, gy0, gx1, gy1, size, ox, oy, opts = {}) {
+  const T = tilesFor(REGIONS[G ? G.region : titleRegion]);
   const now = performance.now()/1000, wf = Math.floor(now*2) % 3, ff = Math.floor(now*1.6) % 2;
-  const x0 = Math.floor(cx/TILE), y0 = Math.floor(cy/TILE), x1 = Math.floor((cx + W)/TILE), y1 = Math.floor((cy + H)/TILE);
-  // the tall-grass cell the player is walking through rustles
-  const rgx = G && P && P.moving ? Math.floor(P.x/TILE) : null, rgy = G && P ? Math.floor((P.y + P.r*.7)/TILE) : null;
   const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
-  for (let gy = y0; gy <= y1; gy++) for (let gx = x0; gx <= x1; gx++) {
-    const k = cellKind(gx, gy), h = hash(gx, gy), sx = gx*TILE - cx, sy = gy*TILE - cy;
+  for (let gy = gy0; gy <= gy1; gy++) for (let gx = gx0; gx <= gx1; gx++) {
+    const k = cellKind(gx, gy), h = hash(gx, gy), sx = ox + (gx - gx0)*size, sy = oy + (gy - gy0)*size;
     if (k === 0) {
       const d = (h >>> 8) % 100;
-      const tile = d < 5 ? T.flower[(h >>> 4) & 1][(ff + (h & 1)) % 2] : d < 7 ? T.rock : T.grass[h % 3];
-      ctx.drawImage(tile, sx, sy, TILE, TILE);
+      const tile = d < 5 ? T.flower[(h >>> 4) & 1][(ff + (h & 1)) % 2] : d < 7 && opts.flatRocks !== false ? T.rock : T.grass[h % 3];
+      c.drawImage(tile, sx, sy, size, size);
     } else if (k === 2) {
-      ctx.drawImage(T.tall[gx === rgx && gy === rgy && Math.floor(now*8) % 2 ? 1 : 0], sx, sy, TILE, TILE);
+      const r = opts.rustle;
+      c.drawImage(T.tall[r && gx === r[0] && gy === r[1] && Math.floor(now*8) % 2 ? 1 : 0], sx, sy, size, size);
     } else if (k === 1) {
-      ctx.drawImage(T.path[h & 1], sx, sy, TILE, TILE);
-      DIRS.forEach(([dx, dy], q) => { const n = cellKind(gx + dx, gy + dy); if (n === 0 || n === 2) ctx.drawImage(T.pathEdge[q], sx, sy, TILE, TILE); });
+      c.drawImage(T.path[h & 1], sx, sy, size, size);
+      DIRS.forEach(([dx, dy], q) => { const n = cellKind(gx + dx, gy + dy); if (n === 0 || n === 2) c.drawImage(T.pathEdge[q], sx, sy, size, size); });
     } else {
-      ctx.drawImage(T.water[(wf + (h & 1)) % 3], sx, sy, TILE, TILE);
-      DIRS.forEach(([dx, dy], q) => { if (cellKind(gx + dx, gy + dy) !== 3) ctx.drawImage(T.shore[q], sx, sy, TILE, TILE); });
+      c.drawImage(T.water[(wf + (h & 1)) % 3], sx, sy, size, size);
+      DIRS.forEach(([dx, dy], q) => { if (cellKind(gx + dx, gy + dy) !== 3) c.drawImage(T.shore[q], sx, sy, size, size); });
     }
   }
+}
+function drawGround(cx, cy) {
+  cx = Math.round(cx); cy = Math.round(cy);
+  const x0 = Math.floor(cx/TILE), y0 = Math.floor(cy/TILE), x1 = Math.floor((cx + W)/TILE), y1 = Math.floor((cy + H)/TILE);
+  // the tall-grass cell the player is walking through rustles
+  const rustle = G && P && P.moving ? [Math.floor(P.x/TILE), Math.floor((P.y + P.r*.7)/TILE)] : null;
+  paintCells(ctx, x0, y0, x1, y1, TILE, x0*TILE - cx, y0*TILE - cy, { rustle });
 }
 
 // tall grass tips drawn over the feet of anyone standing in it (the classic Pokémon look)
@@ -2660,6 +2752,7 @@ function drawWeather(cx, cy, dt) {
 
 // Pokémon that float instead of walking
 const hovers = types => types && (types.includes('flying') || types.includes('ghost'));
+const allyRadius = a => 13 + 2.5*(a.stage || 0);
 const easeOutBack = k => Math.max(0, 1 + 2.7*Math.pow(k - 1, 3) + 1.7*Math.pow(k - 1, 2));
 
 /* Draws a Pokémon standing at (x, y) with hitbox radius r.
@@ -2726,6 +2819,9 @@ function drawPokeball(x, y, r) {
 }
 
 function render(now) {
+  const want3D = !!(G && V3.on);
+  if ((cv3.style.display === 'block') !== want3D) cv3.style.display = want3D ? 'block' : 'none';
+  if (want3D) { render3D(now); return; }
   let cx, cy;
   if (G) { cx = G.cam.x + (Math.random() - .5)*G.shake; cy = G.cam.y + (Math.random() - .5)*G.shake; }
   else { cx = now*.03; cy = now*.012; }
@@ -2805,8 +2901,10 @@ function render(now) {
       }
       if (!hovers(P.types)) drawGrassOverFeet(P.x, P.y, P.r);
     } else if (c.cd !== undefined && !c.hitT) { // ally
-      drawMon(c.id, c.x, c.y, 13, c.dirX > 0, { shiny:true, t:T + c.x*.001, moving:true, rate:1.5, hover:hovers(c.types), type:c.types[0], name:c.name });
-      if (!hovers(c.types)) drawGrassOverFeet(c.x, c.y, 13);
+      const ar = allyRadius(c);
+      if (c.evoT > 0) drawMon(Math.floor(c.evoT*10) % 2 ? c.prevId : c.id, c.x, c.y, ar, c.dirX > 0, { shiny:true, white:true, t:T, scale:1 + Math.sin(T*30)*.05 });
+      else drawMon(c.id, c.x, c.y, ar, c.dirX > 0, { shiny:true, t:T + c.x*.001, moving:true, rate:1.5, hover:hovers(c.types), type:c.types[0], name:c.name });
+      if (!hovers(c.types)) drawGrassOverFeet(c.x, c.y, ar);
     } else {
       if (c.elite || c.boss) {
         ctx.strokeStyle = c.boss ? 'rgba(255,60,60,.6)' : 'rgba(255,230,80,.8)'; ctx.lineWidth = 2;
@@ -2962,16 +3060,18 @@ function render(now) {
   ctx.globalAlpha = 1;
   ctx.restore();
 
-  // pickup radius / low HP vignette
+  drawOverlay(cx, cy, rdt);
+}
+
+// screen-space layer shared by 2D and 3D: low-HP vignette, weather, touch joystick
+function drawOverlay(cx, cy, rdt) {
+  const T = G.t;
   if (P.hp / P.maxHp < .25) {
     const v = ctx.createRadialGradient(W/2, H/2, Math.min(W, H)*.3, W/2, H/2, Math.max(W, H)*.7);
     v.addColorStop(0, 'rgba(200,0,0,0)'); v.addColorStop(1, `rgba(200,0,0,${.25 + Math.sin(T*6)*.08})`);
     ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
   }
-
   drawWeather(cx, cy, G.paused || G.choosing ? 0 : rdt);
-
-  // virtual joystick
   if (stick) {
     const dx = stick.x - stick.ox, dy = stick.y - stick.oy, d = Math.hypot(dx, dy), k = d > STICK_R ? STICK_R/d : 1;
     ctx.fillStyle = 'rgba(255,255,255,.18)'; ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 3;
@@ -2979,7 +3079,428 @@ function render(now) {
     drawPokeball(stick.ox + dx*k, stick.oy + dy*k, 22);
   } else if (touchUsed && G.running && G.t < 8) {
     ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.font = '10px "Press Start 2P", monospace'; ctx.textAlign = 'center';
-    ctx.fillText('Touch and drag anywhere to move', W/2, H - 40);
+    ctx.fillText(V3.on ? 'Left side: move · right side: look' : 'Touch and drag anywhere to move', W/2, H - 40);
+  }
+}
+
+/* =========================================================================
+   3D mode (in the style of Megabonk). The game itself still runs on the
+   same flat map; this draws it in 3D with three.js (bundled in the repo,
+   only loaded when 3D is switched on): rolling hills painted with the
+   pixel-art tiles, low-poly trees and rocks, tall grass tufts, Pokémon as
+   animated sprites standing in the world, and a chase camera.
+   ========================================================================= */
+const CHUNK = 64;   // the ground is a 64×64-cell patch around the player, rebuilt as you travel
+const V3 = { on:false, ready:false, loading:false, yaw:-Math.PI/2, pitch:.52, camY:0, look:null, chunk:null };
+const cv3 = document.createElement('canvas');
+cv3.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;display:none;pointer-events:none';
+document.body.insertBefore(cv3, cv);
+const SKY = { kanto:'#a8d8f8', johto:'#f2c8a0', hoenn:'#8ad4f8', sinnoh:'#dfe8f2', unova:'#b8c8d8', kalos:'#d8c8f0', alola:'#7fd8f8', galar:'#9aa8b4', paldea:'#f0d8a0' };
+const TREES = { // per-region tree style and colours
+  kanto:['round', '#3f8f3a'], johto:['round', '#d0782c'], hoenn:['round', '#2fa040'], sinnoh:['pine', '#3f6f58', true],
+  unova:['round', '#4f7f4a'], kalos:['round', '#d890c0'], alola:['palm', '#3fa848'], galar:['pine', '#2f5a32'], paldea:['round', '#7a9a30'],
+};
+// gentle rolling hills
+const heightAt = (x, y) => (vnoise(x/700, y/700, 77) - .5)*90 + (vnoise(x/220, y/220, 78) - .5)*22;
+
+async function set3D(on) {
+  Save.data.settings.mode3d = on; Save.write();
+  if (on && !V3.ready && !V3.loading) {
+    V3.loading = true; showNote('Loading 3D…'); updateViewButtons();
+    try { V3.T = await import('./three.module.min.js'); init3D(); V3.ready = true; }
+    catch (e) { console.error(e); showNote("3D couldn't start on this device. Staying in 2D."); Save.data.settings.mode3d = false; Save.write(); }
+    V3.loading = false;
+  }
+  V3.on = !!(Save.data.settings.mode3d && V3.ready);
+  V3.chunk = null; stick = null; pointer = null; V3.look = null;
+  updateViewButtons();
+}
+function updateViewButtons() {
+  const want = Save.data.settings.mode3d;
+  $('viewBtn').textContent = V3.loading ? 'View: loading…' : `View: ${want ? '3D' : '2D'}`;
+  $('viewBtnPause').textContent = want ? 'Switch to 2D' : 'Switch to 3D';
+  $('jumpBtn').classList.toggle('hidden', !(V3.on && touchUsed));
+}
+
+function canvasTex(c, opts = {}) {
+  const T3 = V3.T, t = new T3.CanvasTexture(c);
+  t.magFilter = T3.NearestFilter; t.minFilter = opts.mip ? T3.LinearMipmapLinearFilter : T3.NearestFilter;
+  t.generateMipmaps = !!opts.mip; t.colorSpace = T3.SRGBColorSpace;
+  return t;
+}
+// 3D can only use images fetched as shareable data, so still sprites and item icons are
+// fetched directly and copied into a canvas (the 2D game keeps using plain <img> loading)
+const pic3D = {};
+function pic3DOf(url) {
+  let e = pic3D[url];
+  if (!e) {
+    e = pic3D[url] = { state:'loading', canvas:null };
+    fetch(url).then(r => { if (!r.ok) throw new Error(r.status); return r.blob(); }).then(createImageBitmap)
+      .then(b => { const c = document.createElement('canvas'); c.width = b.width; c.height = b.height; c.getContext('2d').drawImage(b, 0, 0); e.canvas = c; e.state = 'ready'; })
+      .catch(() => { e.state = 'failed'; });
+  }
+  return e;
+}
+// one texture per sprite frame (and a mirrored copy sharing the same image), made on first use
+const texCache = new WeakMap();
+function texOf(src, flip) {
+  let e = texCache.get(src);
+  if (!e) { e = { n:canvasTex(src) }; texCache.set(src, e); }
+  if (flip && !e.f) { e.f = e.n.clone(); e.f.repeat.x = -1; e.f.offset.x = 1; }
+  return flip ? e.f : e.n;
+}
+function makePool(make) {
+  const items = []; let used = 0;
+  return {
+    begin() { used = 0; },
+    get() { let o = items[used]; if (!o) { o = make(); items.push(o); V3.scene.add(o); } used++; o.visible = true; return o; },
+    end() { for (let i = used; i < items.length; i++) items[i].visible = false; },
+  };
+}
+const colorCache = new Map();
+function linColor(str) { // CSS colour -> linear RGB for three.js vertex colours
+  let c = colorCache.get(str);
+  if (!c) {
+    let r = 1, g = 1, b = 1;
+    if (str[0] === '#') { const n = parseInt(str.slice(1), 16); r = (n >> 16)/255; g = ((n >> 8) & 255)/255; b = (n & 255)/255; }
+    else { const m = str.match(/[\d.]+/g); if (m) { r = m[0]/255; g = m[1]/255; b = m[2]/255; } }
+    const col = new V3.T.Color().setRGB(r, g, b, V3.T.SRGBColorSpace);
+    colorCache.set(str, c = [col.r, col.g, col.b]);
+  }
+  return c;
+}
+
+function init3D() {
+  const T3 = V3.T;
+  const r = V3.renderer = new T3.WebGLRenderer({ canvas:cv3, antialias:true });
+  r.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5)); r.setSize(W, H, false);
+  const scene = V3.scene = new T3.Scene();
+  V3.camera = new T3.PerspectiveCamera(58, W/H, 4, 1500);
+  scene.background = new T3.Color(SKY.kanto);
+  scene.fog = new T3.Fog(SKY.kanto, 520, 1250);
+  scene.add(new T3.HemisphereLight(0xffffff, 0x8a9a70, 2.2));
+  const sun = new T3.DirectionalLight(0xffffff, 1.8); sun.position.set(.5, 1, .35); scene.add(sun);
+
+  // ground: a hilly plane wearing a canvas painted with the pixel-art tiles
+  V3.groundCanvas = document.createElement('canvas'); V3.groundCanvas.width = V3.groundCanvas.height = CHUNK*ART;
+  V3.groundTex = canvasTex(V3.groundCanvas, { mip:true }); V3.groundTex.anisotropy = r.capabilities.getMaxAnisotropy();
+  const gg = new T3.PlaneGeometry(CHUNK*TILE, CHUNK*TILE, 96, 96); gg.rotateX(-Math.PI/2);
+  gg.setAttribute('color', new T3.BufferAttribute(new Float32Array(gg.attributes.position.count*3), 3));
+  V3.ground = new T3.Mesh(gg, new T3.MeshBasicMaterial({ map:V3.groundTex, vertexColors:true }));
+  scene.add(V3.ground);
+
+  // shared sprite textures: a soft glow (for bright attacks) and a solid orb (for dark ones)
+  const glow = document.createElement('canvas'); glow.width = glow.height = 32;
+  let g = glow.getContext('2d'), gr = g.createRadialGradient(16, 16, 0, 16, 16, 16);
+  gr.addColorStop(0, '#fff'); gr.addColorStop(.35, 'rgba(255,255,255,.9)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 32, 32);
+  const orb = document.createElement('canvas'); orb.width = orb.height = 16; g = orb.getContext('2d');
+  g.fillStyle = '#fff'; g.beginPath(); g.arc(8, 8, 7, 0, Math.PI*2); g.fill(); g.lineWidth = 2; g.strokeStyle = 'rgba(0,0,0,.45)'; g.stroke();
+  V3.glowTex = canvasTex(glow); V3.orbTex = canvasTex(orb);
+  // a Poké Ball for catchable pickups, painted by hand (drawPokeball draws on the main canvas)
+  const ball = document.createElement('canvas'); ball.width = ball.height = 24;
+  g = ball.getContext('2d');
+  g.fillStyle = '#e83030'; g.beginPath(); g.arc(12, 12, 10, Math.PI, 0); g.fill(); g.fillStyle = '#f8f8f8'; g.beginPath(); g.arc(12, 12, 10, 0, Math.PI); g.fill();
+  g.strokeStyle = '#202020'; g.lineWidth = 2; g.beginPath(); g.arc(12, 12, 10, 0, Math.PI*2); g.moveTo(2, 12); g.lineTo(22, 12); g.stroke();
+  g.fillStyle = '#fff'; g.beginPath(); g.arc(12, 12, 3.4, 0, Math.PI*2); g.fill(); g.stroke();
+  V3.ballTex = canvasTex(ball);
+
+  // pools of reusable objects
+  V3.mons = makePool(() => { const s = new T3.Sprite(new T3.SpriteMaterial({ alphaTest:.5 })); s.center.set(.5, 0); return s; });
+  V3.glows = makePool(() => new T3.Sprite(new T3.SpriteMaterial({ map:V3.glowTex, blending:T3.AdditiveBlending, depthWrite:false, transparent:true })));
+  V3.orbs = makePool(() => new T3.Sprite(new T3.SpriteMaterial({ map:V3.orbTex, alphaTest:.3 })));
+  V3.items = makePool(() => new T3.Sprite(new T3.SpriteMaterial({ alphaTest:.5 })));
+  const flat = geo => { geo.rotateX(-Math.PI/2); return geo; };
+  const fxMat = (add) => new T3.MeshBasicMaterial({ transparent:true, depthWrite:false, side:T3.DoubleSide, blending:add ? T3.AdditiveBlending : T3.NormalBlending });
+  const discGeo = flat(new T3.CircleGeometry(1, 32)), ringGeo = flat(new T3.RingGeometry(.84, 1, 48)), arcGeo = flat(new T3.RingGeometry(.5, 1, 16, 1, -.95, 1.9));
+  const boxGeo = new T3.BoxGeometry(1, 1, 1), rockGeo = new T3.IcosahedronGeometry(1, 0);
+  V3.discs = makePool(() => new T3.Mesh(discGeo, fxMat(false)));
+  V3.rings = makePool(() => new T3.Mesh(ringGeo, fxMat(false)));
+  V3.arcs = makePool(() => new T3.Mesh(arcGeo, fxMat(true)));
+  V3.boxes = makePool(() => new T3.Mesh(boxGeo, fxMat(true)));
+  V3.rocks = makePool(() => new T3.Mesh(rockGeo, new T3.MeshLambertMaterial({ color:0x8a7448, flatShading:true })));
+
+  // blob shadows under everyone: one instanced mesh
+  V3.shadows = new T3.InstancedMesh(discGeo, new T3.MeshBasicMaterial({ color:0x000000, transparent:true, opacity:.28, depthWrite:false }), 800);
+  V3.shadows.frustumCulled = false; scene.add(V3.shadows);
+  // particles and Exp. Candy as point clouds
+  const points = (n, size, add) => {
+    const geo = new T3.BufferGeometry();
+    geo.setAttribute('position', new T3.BufferAttribute(new Float32Array(n*3), 3).setUsage(T3.DynamicDrawUsage));
+    geo.setAttribute('color', new T3.BufferAttribute(new Float32Array(n*3), 3).setUsage(T3.DynamicDrawUsage));
+    const p = new T3.Points(geo, new T3.PointsMaterial({ size, vertexColors:true, transparent:true, depthWrite:false, blending:add ? T3.AdditiveBlending : T3.NormalBlending }));
+    p.frustumCulled = false; scene.add(p); return p;
+  };
+  V3.partsN = points(1000, 7, false); V3.partsA = points(1000, 7, true); V3.gems = points(400, 10, false);
+
+  // shared geometry for scenery
+  const tr = (geo, y) => { geo.translate(0, y, 0); return geo; };
+  V3.treeGeo = {
+    round:[tr(new T3.CylinderGeometry(4, 6, 26, 6), 13), tr(new T3.IcosahedronGeometry(24, 0), 44)],
+    pine:[tr(new T3.CylinderGeometry(4, 5, 18, 6), 9), tr(new T3.ConeGeometry(26, 40, 7), 36), tr(new T3.ConeGeometry(18, 30, 7), 58), tr(new T3.ConeGeometry(9, 14, 7), 72)],
+    palm:[tr(new T3.CylinderGeometry(3, 5, 56, 6), 28), tr(new T3.ConeGeometry(40, 12, 8), 60)],
+  };
+  // tall grass tuft: two crossed quads wearing the see-through tall grass tile
+  const q = new T3.BufferGeometry(), hw = TILE/2, h = 26;
+  q.setAttribute('position', new T3.Float32BufferAttribute([-hw,0,0, hw,0,0, hw,h,0, -hw,h,0, 0,0,-hw, 0,0,hw, 0,h,hw, 0,h,-hw], 3));
+  q.setAttribute('uv', new T3.Float32BufferAttribute([0,0, 1,0, 1,1, 0,1, 0,0, 1,0, 1,1, 0,1], 2));
+  q.setIndex([0,1,2, 0,2,3, 4,5,6, 4,6,7]);
+  V3.tuftGeo = q; V3.rockGeo = rockGeo;
+  V3.decor = [];
+  addEventListener('resize', () => { r.setSize(W, H, false); V3.camera.aspect = W/H; V3.camera.updateProjectionMatrix(); });
+}
+
+// paint and shape the ground around (cgx, cgy) and scatter trees, rocks and tall grass
+function buildChunk(cgx, cgy) {
+  const T3 = V3.T, R = REGIONS[G.region], TL = tilesFor(R), half = CHUNK/2;
+  const gx0 = cgx - half, gy0 = cgy - half, gx1 = gx0 + CHUNK - 1, gy1 = gy0 + CHUNK - 1;
+  const gctx = V3.groundCanvas.getContext('2d'); gctx.imageSmoothingEnabled = false;
+  const old = V3.chunk, opts = { flatRocks:false };
+  if (old && old.region === G.region && Math.abs(cgx - old.gx) < CHUNK && Math.abs(cgy - old.gy) < CHUNK) {
+    // slide the existing painting over and only paint the newly uncovered strips
+    const dx = cgx - old.gx, dy = cgy - old.gy, tmp = V3.tmpCanvas || (V3.tmpCanvas = document.createElement('canvas'));
+    tmp.width = tmp.height = CHUNK*ART;
+    tmp.getContext('2d').drawImage(V3.groundCanvas, 0, 0);
+    gctx.clearRect(0, 0, CHUNK*ART, CHUNK*ART);
+    gctx.drawImage(tmp, -dx*ART, -dy*ART);
+    if (dx > 0) paintCells(gctx, gx1 - dx + 1, gy0, gx1, gy1, ART, (CHUNK - dx)*ART, 0, opts);
+    if (dx < 0) paintCells(gctx, gx0, gy0, gx0 - dx - 1, gy1, ART, 0, 0, opts);
+    if (dy > 0) paintCells(gctx, gx0, gy1 - dy + 1, gx1, gy1, ART, 0, (CHUNK - dy)*ART, opts);
+    if (dy < 0) paintCells(gctx, gx0, gy0, gx1, gy0 - dy - 1, ART, 0, 0, opts);
+  } else paintCells(gctx, gx0, gy0, gx1, gy1, ART, 0, 0, opts);
+  V3.groundTex.needsUpdate = true;
+  // hills, with a little light/shade from the slope
+  const geo = V3.ground.geometry, pos = geo.attributes.position, col = geo.attributes.color;
+  const ox = cgx*TILE, oz = cgy*TILE;
+  for (let i = 0; i < pos.count; i++) pos.setY(i, heightAt(ox + pos.getX(i), oz + pos.getZ(i)));
+  pos.needsUpdate = true; geo.computeVertexNormals();
+  const n = geo.attributes.normal;
+  for (let i = 0; i < pos.count; i++) { const s = .8 + .32*Math.max(0, n.getX(i)*.45 + n.getY(i)*.8 + n.getZ(i)*.4); col.setXYZ(i, s, s, s); }
+  col.needsUpdate = true; geo.computeBoundingSphere();
+  V3.ground.position.set(ox, 0, oz);
+  // sky and fog take the region's colour
+  V3.scene.background.set(SKY[R.key]); V3.scene.fog.color.set(SKY[R.key]);
+  // scenery
+  for (const m of V3.decor) { V3.scene.remove(m); m.material.dispose(); m.dispose(); }
+  V3.decor = [];
+  const trees = [], rocks = [], tufts = [];
+  for (let gy = gy0; gy < gy0 + CHUNK; gy++) for (let gx = gx0; gx < gx0 + CHUNK; gx++) {
+    const k = cellKind(gx, gy), h = hash(gx, gy);
+    const x = (gx + .5)*TILE, z = (gy + .5)*TILE;
+    if (k === 2) tufts.push([x + ((h >>> 3) % 9 - 4), z + ((h >>> 7) % 9 - 4), .9 + ((h >>> 11) % 5)*.08, (h >>> 13) % 7]);
+    else if (k === 0) {
+      const d = (h >>> 8) % 100;
+      if (d >= 5 && d < 7) rocks.push([x, z, .7 + ((h >>> 15) % 6)*.15, h % 7]);
+      else if (hash(gx*7 + 3, gy*13 + 5) % 1000 < 14 && Math.hypot(gx, gy) > 3 &&
+               [[1,0],[-1,0],[0,1],[0,-1]].every(([dx, dy]) => cellKind(gx + dx, gy + dy) === 0)) trees.push([x, z, .8 + ((h >>> 17) % 6)*.1, h % 11]);
+    }
+  }
+  const dummy = new T3.Object3D();
+  const instanced = (geo, mat, list, sink = 0) => {
+    if (!list.length) return;
+    const m = new T3.InstancedMesh(geo, mat, list.length);
+    list.forEach(([x, z, s, rot], i) => { dummy.position.set(x, heightAt(x, z) - sink*s, z); dummy.rotation.set(0, rot, 0); dummy.scale.setScalar(s); dummy.updateMatrix(); m.setMatrixAt(i, dummy.matrix); });
+    m.computeBoundingSphere(); V3.scene.add(m); V3.decor.push(m);
+  };
+  const [style, leaf, snowy] = TREES[R.key];
+  const lam = c => new T3.MeshLambertMaterial({ color:c, flatShading:true });
+  V3.treeGeo[style].forEach((geo, i) => instanced(geo, lam(i === 0 ? '#7a5232' : style === 'pine' && i === 3 && snowy ? '#f4f8fc' : i >= 2 && snowy ? shade(leaf, .25) : leaf), trees));
+  instanced(V3.rockGeo, lam('#9a9aa6'), rocks.map(([x, z, s, r]) => [x, z, s*9, r]), .35);
+  const tuftTex = canvasTex(TL.tallCut);
+  instanced(V3.tuftGeo, new T3.MeshBasicMaterial({ map:tuftTex, alphaTest:.5, side:T3.DoubleSide }), tufts);
+  V3.chunk = { gx:cgx, gy:cgy, region:G.region };
+}
+
+// place a Pokémon sprite standing in the world (same choices as drawMon in 2D)
+function placeMon(id, x, y, r, flip, o = {}) {
+  let a = getAnim(id, o.shiny, o.back);
+  if (a.state === 'failed' && (o.back || o.shiny)) { a = getAnim(id, o.shiny && !o.back, false); if (a.state === 'failed') a = getAnim(id); if (o.back && a.state !== 'failed') flip = !flip; }
+  let src, w, h, cy = 0;
+  if (a.state === 'ready') {
+    src = frameAt(a, (o.t || 0)*1000*(o.rate || 1));
+    const m = Math.max(a.w, a.h), s = Math.min(r*4.0/m, Math.max(r*2.0/m, r*3.4/96));
+    w = a.w*s; h = a.h*s;
+  } else {
+    let im = pic3DOf(monURL(id, o.shiny, o.back));
+    if (im.state === 'failed' && (o.back || o.shiny)) { im = pic3DOf(monURL(id, o.shiny && !o.back, false)); if (im.state === 'failed') im = pic3DOf(monURL(id)); if (o.back) flip = !flip; }
+    if (im.state !== 'ready') return null;
+    src = im.canvas; w = h = r*3.4; cy = .12;
+  }
+  const t = o.t || 0, sc = Math.max(.001, o.scale ?? 1);
+  let lift = 0, sx = sc, sy = sc;
+  if (o.hover) lift = r*.55 + Math.sin(t*3)*r*.14;
+  else if (o.moving) { const hh = Math.abs(Math.sin(t*9)); lift = hh*r*.2; sy *= 1 + (hh - .5)*.1; sx *= 1 - (hh - .5)*.1; }
+  if (o.flash > 0) { sx *= 1.14; sy *= .84; }
+  lift -= (o.sink || 0)*r*.6;
+  const sp = V3.mons.get(), mat = sp.material, tex = texOf(src, flip);
+  if (mat.map !== tex) { const had = !!mat.map; mat.map = tex; if (!had) mat.needsUpdate = true; }
+  sp.center.set(.5, cy);
+  sp.scale.set(w*sx, h*sy, 1);
+  const ground = heightAt(x, y);
+  sp.position.set(x, ground + Math.max(0, lift) + (o.z || 0), y);
+  mat.color.setScalar(o.white ? 6 : o.flash > 0 ? 3 : 1);
+  if (o.tint) mat.color.multiply(o.tint);
+  const alpha = o.alpha ?? 1;
+  if (mat.opacity !== alpha) { mat.opacity = alpha; mat.transparent = alpha < 1; }
+  V3.shadowList.push(x, ground, y, r*(o.scale ?? 1)*Math.max(.45, 1 - (lift + (o.z || 0))/(r*3)));
+  return sp;
+}
+
+function render3D(now) {
+  const T3 = V3.T, cam = V3.camera, T = G.t;
+  const rdt = Math.min(.05, (now - (render.last || now))/1000); render.last = now;
+  const f0 = Math.cos(V3.yaw), f1 = Math.sin(V3.yaw);
+  const rightOf = (vx, vy) => vx*(-f1) + vy*f0 > 0; // is this direction toward screen-right?
+  const cgx = Math.round(P.x/TILE), cgy = Math.round(P.y/TILE);
+  if (!V3.chunk || V3.chunk.region !== G.region || Math.abs(cgx - V3.chunk.gx) > 11 || Math.abs(cgy - V3.chunk.gy) > 11) buildChunk(cgx, cgy);
+
+  // chase camera behind the player
+  const gh = heightAt(P.x, P.y);
+  V3.camY += (gh + P.z*.4 - V3.camY)*Math.min(1, rdt*5);
+  const D = 330, hd = D*Math.cos(V3.pitch), vh = D*Math.sin(V3.pitch), sh = G.shake*.6;
+  cam.position.set(P.x - f0*hd + (Math.random() - .5)*sh, V3.camY + vh + 20, P.y - f1*hd + (Math.random() - .5)*sh);
+  cam.lookAt(P.x + f0*40, V3.camY + 30, P.y + f1*40);
+
+  for (const p of [V3.mons, V3.glows, V3.orbs, V3.items, V3.discs, V3.rings, V3.arcs, V3.boxes, V3.rocks]) p.begin();
+  V3.shadowList = [];
+  const near = (x, y, d = 1300) => (x - P.x)**2 + (y - P.y)**2 < d*d;
+
+  // the player (back view when running away from the camera), allies, wild Pokémon
+  if (!(P.inv > 0 && P.hurt > 0 && Math.floor(T*30) % 2)) {
+    const faceR = rightOf(P.fx, P.fy), back = P.moving && P.fx*f0 + P.fy*f1 > .55;
+    if (P.evoT > 0) placeMon(Math.floor(P.evoT*10) % 2 ? P.prevId : P.id, P.x, P.y, P.r, faceR, { white:true, t:T, shiny:P.shiny, z:P.z });
+    else placeMon(P.id, P.x, P.y, P.r, back ? !faceR : faceR, { back, t:T, rate:P.moving ? 1.7 : 1, moving:P.moving && P.z <= 0, hover:hovers(P.types), flash:P.hurt, shiny:P.shiny, z:P.z });
+  }
+  for (const a of G.allies) {
+    const ar = allyRadius(a), tp = G.trail[0] || [P.x, P.y];
+    if (a.evoT > 0) placeMon(Math.floor(a.evoT*10) % 2 ? a.prevId : a.id, a.x, a.y, ar, true, { shiny:true, white:true, t:T });
+    else placeMon(a.id, a.x, a.y, ar, rightOf(tp[0] - a.x, tp[1] - a.y), { shiny:true, t:T + a.x*.001, moving:true, rate:1.5, hover:hovers(a.types) });
+  }
+  const frozen = new T3.Color(.6, .9, 1);
+  for (const e of G.enemies) {
+    if (!near(e.x, e.y)) continue;
+    const age = T - (e.born ?? -9), vx = e.swarm ? e.sdx : P.x - e.x, vy = e.swarm ? e.sdy : P.y - e.y;
+    placeMon(e.id, e.x, e.y, e.r, rightOf(vx, vy), {
+      t:T + e.phase, rate:e.boss ? 1 : 1.4, moving:e.freeze <= 0 && !e.boss, hover:hovers(e.types),
+      scale:age < .3 ? easeOutBack(Math.max(0, age/.3)) : 1, shiny:e.shiny, flash:e.flash, tint:e.freeze > 0 ? frozen : null,
+    });
+  }
+  for (const f of G.fx) if (f.kind === 'faint' && near(f.x, f.y)) {
+    const k = 1 - f.life/f.max;
+    placeMon(f.id, f.x, f.y, f.r, f.flip, { t:T + (f.phase || 0), shiny:f.shiny, white:k < .3, scale:1 - k*.6, alpha:Math.min(1, 1.6 - k*1.6), sink:k, hover:hovers(f.types) });
+  }
+
+  // attacks
+  const glow = (x, y, z, size, color, op = 1) => { const s = V3.glows.get(); s.position.set(x, heightAt(x, y) + z, y); s.scale.set(size, size, 1); s.material.color.set(color); s.material.opacity = op; return s; };
+  const orb = (x, y, z, size, color) => { const s = V3.orbs.get(); s.position.set(x, heightAt(x, y) + z, y); s.scale.set(size, size, 1); s.material.color.set(color); return s; };
+  const disc = (pool, x, y, r, color, op, lift = 2) => { const m = pool.get(); m.position.set(x, heightAt(x, y) + lift, y); m.scale.set(r, 1, r); m.material.color.set(color); m.material.opacity = op; m.rotation.set(0, 0, 0); return m; };
+  const DARK = new Set(['ghost', 'poison', 'dark', 'bug', 'rock', 'ground', 'fighting', 'grass']);
+  for (const p of G.projs) {
+    const c = p.kind === 'fire' ? '#ff8a30' : p.kind === 'coin' ? '#ffd040' : p.kind === 'gyro' ? '#dfe4f0' : p.kind === 'star' ? '#ffe848' : p.kind === 'dragon' ? '#8a60ff' : p.kind === 'shadow' ? '#6a40a0' : TC[p.type];
+    if (DARK.has(p.type) && p.kind !== 'dragon') orb(p.x, p.y, 16, p.r*2.4, c);
+    else { glow(p.x, p.y, 16, p.r*3.4, c); glow(p.x, p.y, 16, p.r*1.4, '#ffffff', .8); }
+  }
+  const rl = G.moves.find(m => m.key === 'razorLeaf');
+  if (rl && rl.leaves) for (const l of rl.leaves) orb(l.x, l.y, 14, rl.evo ? 16 : 13, rl.evo ? '#a8f070' : '#58b838');
+  for (const p of G.eprojs) { orb(p.x, p.y, 16, 20, TC[p.type]); glow(p.x, p.y, 16, 26, TC[p.type], .5); }
+  const psy = G.moves.find(m => m.key === 'psychic');
+  if (psy && psy.radius) { disc(V3.rings, P.x, P.y, psy.radius, psy.evo ? '#c060f0' : '#f95587', .45, 4); disc(V3.discs, P.x, P.y, psy.radius, '#f95587', .1, 3); }
+  for (const z of G.zones) {
+    if (z.kind === 'puddle') disc(V3.discs, z.x, z.y, z.r, '#9040a0', Math.min(1, z.life*2)*.5);
+    else if (z.kind === 'quake') disc(V3.rings, z.x, z.y, z.r, z.type === 'dark' ? '#5a2878' : '#96703a', z.life/z.max, 6);
+    else if (z.kind === 'rock') {
+      const k = 1 - z.delay/z.max, s = z.r*.55;
+      disc(V3.discs, z.x, z.y, z.r*k, '#000000', .15 + .25*k);
+      const m = V3.rocks.get(); m.position.set(z.x, heightAt(z.x, z.y) + (1 - k)*(1 - k)*420 + s*.6, z.y); m.scale.setScalar(s); m.rotation.set(k*4, z.x, k*3);
+    } else if (z.kind === 'lob') {
+      const k = z.t/z.T, x = z.sx + (z.x - z.sx)*k, y = z.sy + (z.y - z.sy)*k;
+      orb(x, y, 16 + Math.sin(k*Math.PI)*90, 14, '#a040b0');
+    }
+  }
+  for (const f of G.fx) {
+    const k = f.life/f.max;
+    if (f.kind === 'bolt') {
+      const b = V3.boxes.get(), gy = heightAt(f.x, f.y); b.position.set(f.x, gy + 210, f.y); b.scale.set(3.5, 420, 3.5); b.rotation.set(0, Math.random(), 0); b.material.color.set('#f7d02c'); b.material.opacity = k*.85;
+      disc(V3.discs, f.x, f.y, f.r*(1.3 - k*.3), '#f7d02c', k*.45, 3);
+    } else if (f.kind === 'beam') {
+      const len = Math.hypot(f.x2 - f.x, f.y2 - f.y), mx = (f.x + f.x2)/2, my = (f.y + f.y2)/2, a = Math.atan2(f.y2 - f.y, f.x2 - f.x);
+      const b = V3.boxes.get(); b.position.set(mx, heightAt(P.x, P.y) + 16, my); b.scale.set(len, f.w*.5, f.w*.8); b.rotation.set(0, -a, 0); b.material.color.set('#a8e8f8'); b.material.opacity = k*.8;
+    } else if (f.kind === 'arc') {
+      const m = disc(V3.arcs, f.x, f.y, f.r*.85, '#ffb060', k, 8); m.rotation.y = -f.a;
+    } else if (f.kind === 'burst') disc(V3.discs, f.x, f.y, f.r*(1.2 - k*.4), f.color, k*.55, 4);
+    else if (f.kind === 'flash') disc(V3.discs, f.x, f.y, f.r*(1.1 - k*.3), '#ffd8f0', k*.35, 5);
+  }
+  // pickups
+  for (const k of G.pickups) {
+    const s = V3.items.get(), bob = Math.sin(T*4 + k.x)*3;
+    let tex = V3.ballTex;
+    if (k.kind !== 'ball') { const im = pic3DOf(itemURL(k.kind === 'berry' ? 'oran-berry' : 'rare-candy')); tex = im.state === 'ready' ? texOf(im.canvas) : V3.ballTex; }
+    if (s.material.map !== tex) { const had = !!s.material.map; s.material.map = tex; if (!had) s.material.needsUpdate = true; }
+    s.position.set(k.x, heightAt(k.x, k.y) + 16 + bob, k.y); s.scale.set(26, 26, 1);
+  }
+  for (const p of [V3.mons, V3.glows, V3.orbs, V3.items, V3.discs, V3.rings, V3.arcs, V3.boxes, V3.rocks]) p.end();
+
+  // shadows
+  const sl = V3.shadowList, dummy = V3.dummy || (V3.dummy = new T3.Object3D()), n = Math.min(800, sl.length/4);
+  for (let i = 0; i < n; i++) { dummy.position.set(sl[i*4], sl[i*4 + 1] + 1.5, sl[i*4 + 2]); dummy.scale.set(sl[i*4 + 3]*.95, 1, sl[i*4 + 3]*.55); dummy.rotation.set(0, -V3.yaw, 0); dummy.updateMatrix(); V3.shadows.setMatrixAt(i, dummy.matrix); }
+  V3.shadows.count = n; V3.shadows.instanceMatrix.needsUpdate = true;
+
+  // particles (rise a little as they fade) and Exp. Candy
+  for (const [pts, add] of [[V3.partsN, false], [V3.partsA, true]]) {
+    const pos = pts.geometry.attributes.position, col = pts.geometry.attributes.color;
+    let i = 0;
+    for (const p of G.parts) {
+      if (p.add !== add || i >= 1000 || !near(p.x, p.y, 1100)) continue;
+      const k = p.life/p.max, c = linColor(p.color), f = add ? k : 1;
+      pos.setXYZ(i, p.x, heightAt(p.x, p.y) + 14 + (1 - k)*18, p.y); col.setXYZ(i, c[0]*f, c[1]*f, c[2]*f); i++;
+    }
+    pts.geometry.setDrawRange(0, i); pos.needsUpdate = true; col.needsUpdate = true;
+  }
+  {
+    const pos = V3.gems.geometry.attributes.position, col = V3.gems.geometry.attributes.color;
+    let i = 0;
+    for (const g of G.gems) {
+      if (i >= 400 || !near(g.x, g.y, 1100)) continue;
+      const c = linColor(g.v < 3 ? '#58c8f8' : g.v < 10 ? '#68e050' : '#f85878');
+      pos.setXYZ(i, g.x, heightAt(g.x, g.y) + 8 + Math.sin(T*5 + g.x)*2, g.y); col.setXYZ(i, c[0], c[1], c[2]); i++;
+    }
+    V3.gems.geometry.setDrawRange(0, i); pos.needsUpdate = true; col.needsUpdate = true;
+  }
+
+  V3.renderer.render(V3.scene, cam);
+
+  // 2D overlay: damage numbers projected into place, then vignette/weather/joystick
+  ctx.clearRect(0, 0, W, H);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+  const v = V3.v || (V3.v = new T3.Vector3());
+  for (const t of G.texts) {
+    const age = t.max - t.life, wy = t.y + age*28; // undo the 2D drift, rise in 3D instead
+    v.set(t.x, heightAt(t.x, wy) + 34 + age*40, wy).project(cam);
+    if (v.z > 1 || v.z < -1) continue;
+    const k = t.life/t.max, sx = (v.x + 1)/2*W, sy = (1 - v.y)/2*H;
+    ctx.globalAlpha = Math.min(1, k*2);
+    ctx.font = `${Math.round(t.size*(k > .8 ? 1 + (k - .8)*2.5 : 1))}px "Press Start 2P", monospace`;
+    ctx.strokeStyle = '#000'; ctx.lineWidth = 3; ctx.strokeText(t.txt, sx, sy);
+    ctx.fillStyle = t.color; ctx.fillText(t.txt, sx, sy);
+  }
+  ctx.globalAlpha = 1;
+  drawOverlay(P.x, P.y, rdt);
+}
+
+// camera controls and jumping (3D only)
+function jump() {
+  if (!V3.on || !G || !G.running || G.paused || G.choosing || P.z > 0) return;
+  P.vz = 520; Sound.sfx('select');
+}
+function update3DControls(dt) {
+  if (!V3.on || !G) return;
+  if (keys.q) V3.yaw -= 2.4*dt;
+  if (keys.e) V3.yaw += 2.4*dt;
+  const gp = Pad.gp;
+  if (gp && !topScreen()) {
+    const ax = gp.axes[2] || 0, ay = gp.axes[3] || 0;
+    if (Math.abs(ax) > .2) V3.yaw += ax*2.8*dt;
+    if (Math.abs(ay) > .2) V3.pitch = Math.max(.18, Math.min(1.2, V3.pitch + ay*1.4*dt));
   }
 }
 
@@ -2990,6 +3511,7 @@ let last = performance.now();
 function frame(now) {
   const dt = Math.min(.05, (now - last)/1000); last = now;
   pollPad(dt);
+  update3DControls(dt);
   pumpAnimQueue();
   if (G && G.running && !G.paused && !G.choosing) update(dt);
   render(now);
@@ -2997,6 +3519,13 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+
+// 2D / 3D view switch (3D loads on demand, and again on startup if it was left on)
+$('viewBtn').onclick = () => set3D(!Save.data.settings.mode3d);
+$('viewBtnPause').onclick = () => set3D(!Save.data.settings.mode3d);
+$('jumpBtn').addEventListener('pointerdown', e => { e.preventDefault(); jump(); });
+updateViewButtons();
+if (Save.data.settings.mode3d) set3D(true);
 </script>
 </body>
 </html>
