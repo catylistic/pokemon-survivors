@@ -53,6 +53,10 @@
   #bossfill{height:100%;background:linear-gradient(#ff7070,#d02030);width:100%}
   #banner{position:absolute;left:50%;bottom:12%;transform:translateX(-50%);background:var(--paper);border:4px solid var(--line);border-radius:10px;padding:14px 20px;font-size:12px;line-height:1.6;max-width:90vw;text-align:center;opacity:0;transition:opacity .25s;box-shadow:0 4px 0 rgba(0,0,0,.35)}
   #banner.show{opacity:1}
+  #tip{position:fixed;left:0;right:0;margin:0 auto;width:fit-content;top:100px;transform:translateY(-8px);z-index:30;display:flex;gap:10px;align-items:center;max-width:min(460px,92vw);background:#fffbe6;border:3px solid #b07800;border-radius:10px;padding:10px 14px;font:13px/1.45 system-ui,sans-serif;color:var(--ink);text-align:left;box-shadow:0 4px 0 rgba(0,0,0,.3);opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;cursor:pointer}
+  #tip.show{opacity:1;transform:none;pointer-events:auto}
+  #tip b.px{font-size:9px;color:#8a5c00;flex:none}
+  #tip small{display:block;font-size:10px;color:#8a94a8;margin-top:2px}
 
   /* ---------- overlay screens ---------- */
   .screen{position:fixed;inset:0;display:flex;padding:16px;background:rgba(10,16,24,.55);overflow:auto}
@@ -170,6 +174,7 @@
   @media (max-width:600px){
     #timer{font-size:14px;top:92px}
     #bossbar{top:116px}
+    #tip{top:auto;bottom:16px;transform:translateY(8px)}
     .hpbar{width:100px}
     #loadout{top:auto;bottom:10px}
   }
@@ -197,6 +202,8 @@
   <div id="bossbar" class="hidden"><div id="bossname" class="px"></div><div class="bar"><div id="bossfill"></div></div></div>
   <div id="banner" class="px"></div>
 </div>
+
+<button id="tip" aria-live="polite"></button>
 
 <div id="title" class="screen">
   <div class="box">
@@ -325,6 +332,7 @@
   <div class="box">
     <h2 class="px">Settings</h2>
     <div class="opts">
+      <label><span>Tips for new players<small>Turning this back on shows every tip again</small></span><input type="checkbox" id="optTips"></label>
       <label><span>Music</span><input type="range" id="volMusic" min="0" max="1" step="0.05"></label>
       <label><span>Sound effects</span><input type="range" id="volSfx" min="0" max="1" step="0.05"></label>
       <label><span>Screen shake</span><input type="range" id="optShake" min="0" max="1" step="0.25"></label>
@@ -1828,8 +1836,10 @@ function newGame(starterKey, daily = null) {
     banner(`Daily Challenge · ${TWISTS[daily.twist].name}: ${TWISTS[daily.twist].desc}`, 4.5);
     if (daily.twist === 'head') for (let i = 0; i < 9; i++) gainXp(G.xpNext - G.xp + .01); // Lv 10 at the start
   }
-  // the first couple of runs: remind new players that candy is how you level up
-  if (Save.data.runs <= 2) setTimeout(() => { if (G && G.running && G.t < 30) banner('Tip: walk over the Exp. Candy that fainted Pokémon drop to level up!', 5); }, 6000);
+  // tips for new players: how to move, then that candy is how you level up
+  Tips.clear();
+  const run = G;
+  setTimeout(() => { if (G === run && G.running) { Tips.show('move'); Tips.show('candy'); if (V3.on) Tips.show('three'); } }, 2500);
   // animations from another region aren't needed any more: free their memory
   if (G.region !== lastAnimRegion) { animCache = {}; animQueue.length = 0; lastAnimRegion = G.region; }
 }
@@ -1951,7 +1961,8 @@ function damageEnemy(e, base, type, src = 'player', srcTypes = null, kx = 0, ky 
   const col = m >= 2 ? '#ffe040' : m < 1 ? '#c8c8d0' : '#fff';
   if (opt('nums')) addText(e.x + (Math.random()-.5)*10, e.y - e.r, Math.round(d) + (crit ? '!' : ''), col, m >= 2 ? 11 : m < 1 ? 7 : 9);
   if (m >= 4) G.hit4 = true;
-  if (m >= 2 && G.t - G.seT > 2.5) { G.seT = G.t; Sound.sfx('se'); addText(e.x, e.y - e.r - 18, m >= 4 ? "It's super effective!!" : "It's super effective!", '#ffe040', 9, 1.1); }
+  if (m >= 2 && G.t - G.seT > 2.5) { G.seT = G.t; Sound.sfx('se'); addText(e.x, e.y - e.r - 18, m >= 4 ? "It's super effective!!" : "It's super effective!", '#ffe040', 9, 1.1); Tips.show('super'); }
+  else if (m < 1 && G.t > 20 && G.level >= 3) Tips.show('resist');
   if (e.hp <= 0) killEnemy(e);
 }
 
@@ -2024,6 +2035,7 @@ function hurtPlayer(dmg, type, how = 'contact') {
     return d;
   }
   if (P.hp <= 0) { P.hp = 0; endGame(false); }
+  else if (P.hp < P.maxHp*.4) Tips.show('lowhp');
   return d;
 }
 
@@ -2209,7 +2221,7 @@ function spawning(dt) {
     const e = makeEnemy(sp, x, y);
     e.elite = true; e.shiny = true; e.hp *= 8; e.maxHp = e.hp; e.r *= 1.4; e.xp *= 5; e.speed *= .9;
     G.enemies.push(e);
-    banner(`A shiny ${sp.name} appeared!`);
+    banner(`A shiny ${sp.name} appeared!`); Tips.show('shiny');
     Sound.sfx('shiny');
   }
   // bosses
@@ -2222,7 +2234,7 @@ function spawning(dt) {
     G.enemies.push(e); G.boss = e;
     $('bossname').textContent = b.name.toUpperCase();
     $('bossbar').classList.remove('hidden');
-    banner(b.final ? `${b.name.toUpperCase()} has awoken!` : `A wild ${b.name.toUpperCase()} appeared!`);
+    banner(b.final ? `${b.name.toUpperCase()} has awoken!` : `A wild ${b.name.toUpperCase()} appeared!`); Tips.show('boss');
     Sound.sfx('alarm'); Sound.music(b.final ? 'final' : 'boss', R.index); rumble(500, .8);
   }
   // a roaming legendary
@@ -2863,7 +2875,7 @@ function applyOption(o) {
   if (o.kind === 'new') addMove(o.key);
   else if (o.kind === 'up') G.moves.find(m => m.key === o.key).lvl++;
   else if (o.kind === 'evo') { G.moves.find(m => m.key === o.key).evo = true; G.movesEvolved++; banner(`${MOVES[o.key].name} became ${MOVES[o.key].evo.name}!`); }
-  else if (o.kind === 'item') G.items[o.key] = (G.items[o.key] || 0) + 1;
+  else if (o.kind === 'item') { G.items[o.key] = (G.items[o.key] || 0) + 1; if (ITEMS[o.key].forType) Tips.show('item'); }
   else if (o.kind === 'heal') P.hp = P.maxHp;
   else if (o.kind === 'protein') G.protein *= 1.05;
   recalc();
@@ -2873,7 +2885,7 @@ function applyOption(o) {
 function openLevelUp() {
   G.choosing = true;
   pointer = null;
-  Sound.sfx('levelup');
+  Sound.sfx('levelup'); Tips.show('levelup');
   const opts = buildOptions();
   $('luTitle').textContent = `${P.name} grew to Lv ${G.level - G.pending + 1}!`;
   const box = $('choices'); box.innerHTML = '';
@@ -2908,6 +2920,47 @@ function banner(text, secs = 2.6) {
   const b = $('banner'); b.textContent = text; b.classList.add('show');
   G.bannerT = secs;
 }
+// ---- tips for new players: each one shows once, the first time it's useful ----
+const TIPS = {
+  move: () => touchUsed ? 'Drag anywhere on the screen to move. Your attacks fire on their own!'
+    : Pad.gp ? 'Move with the left stick. Your attacks fire on their own!'
+    : 'Move with WASD or the arrow keys (or hold the mouse button). Your attacks fire on their own!',
+  candy: 'Walk over the Exp. Candy that fainted Pokémon drop to fill your EXP bar and level up.',
+  levelup: 'Pick a new move or power up one you have. Moves that share your type get STAB: 1.5× damage.',
+  super: "Super effective! Moves hit 2× (or 4×) as hard on Pokémon weak to their type.",
+  resist: "Not very effective... that Pokémon resists this move's type. A move of another type will hit it harder.",
+  lowhp: 'Low HP! Fainted Pokémon sometimes drop Oran Berries, and level-ups can offer a Max Potion.',
+  shiny: 'A shiny Pokémon! Defeat it, then walk over the Poké Ball it drops to catch it as an ally.',
+  item: 'Held items power up one type. Get a move to Lv 6 while holding its item and the move can evolve!',
+  boss: 'Boss fight! Bosses flash red circles on the ground before big attacks. Step out before they land.',
+  three: 'In 3D, drag the screen (or Q / E, or the right stick) to turn the camera. Space / A / JUMP hops over enemies.',
+};
+const Tips = {
+  q: [], cur: null, timer: null,
+  seen() { return Save.data.tips || (Save.data.tips = {}); },
+  show(k) {
+    if (!opt('tips') || this.seen()[k] || this.cur === k || this.q.some(x => x.k === k)) return;
+    this.q.push({ k, at:performance.now() }); if (!this.cur) this.next();
+  },
+  next() {
+    // a tip that waited too long isn't about what's happening any more: save it for next time
+    while (this.q.length && performance.now() - this.q[0].at > 12000) this.q.shift();
+    const k = this.q.length && this.q.shift().k; if (!k) return;
+    this.cur = k; this.seen()[k] = 1; Save.write();
+    const txt = typeof TIPS[k] === 'function' ? TIPS[k]() : TIPS[k];
+    $('tip').innerHTML = `<b class="px">TIP</b><span>${txt}<small>${touchUsed ? 'Tap' : 'Click'} to dismiss · turn tips off in Settings</small></span>`;
+    $('tip').classList.add('show');
+    clearTimeout(this.timer); this.timer = setTimeout(() => this.hide(), 7000 + txt.length*25);
+  },
+  hide() {
+    $('tip').classList.remove('show'); this.cur = null; clearTimeout(this.timer);
+    if (this.q.length) this.timer = setTimeout(() => this.next(), 1200);
+  },
+  clear() { this.q = []; this.hide(); },
+};
+$('tip').onclick = () => Tips.hide();
+// players who already know the game (5+ runs before tips existed) skip the basics
+if (!Save.data.tips && Save.data.runs >= 5) { Save.data.tips = {}; for (const k in TIPS) if (k !== 'three') Save.data.tips[k] = 1; Save.write(); }
 function renderLoadout() {
   $('lmoves').innerHTML = G.moves.map(m => {
     const d = MOVES[m.key];
@@ -2969,19 +3022,23 @@ $('volMusic').oninput = e => { Save.data.settings.music = +e.target.value; Sound
 $('volSfx').oninput = e => { Save.data.settings.sfx = +e.target.value; Sound.applyVolumes(); Save.write(); Sound.sfx('select'); };
 
 // ---- settings: comfort and accessibility options (saved on this device) ----
-const OPT_DEF = { shake:1, nums:true, calm:matchMedia('(prefers-reduced-motion: reduce)').matches, sens:1, invertY:false };
+const OPT_DEF = { tips:true, shake:1, nums:true, calm:matchMedia('(prefers-reduced-motion: reduce)').matches, sens:1, invertY:false };
 const opt = k => Save.data.settings[k] ?? OPT_DEF[k];
 const blink = (t, hz) => !opt('calm') && Math.floor(t*hz) % 2 === 1; // on/off flicker, off with "Reduce flashing"
 const wobble = T => opt('calm') ? 1 : 1 + Math.sin(T*30)*.05;
 function openSettings() {
   $('volMusic').value = Save.data.settings.music; $('volSfx').value = Save.data.settings.sfx;
-  $('optShake').value = opt('shake'); $('optNums').checked = opt('nums'); $('optCalm').checked = opt('calm');
+  $('optTips').checked = opt('tips'); $('optShake').value = opt('shake'); $('optNums').checked = opt('nums'); $('optCalm').checked = opt('calm');
   $('optSens').value = opt('sens'); $('optInvert').checked = opt('invertY');
   $('setScreen').classList.remove('hidden');
 }
 const setOpt = (k, v) => { Save.data.settings[k] = v; Save.write(); };
 $('optShake').oninput = e => { setOpt('shake', +e.target.value); if (G) G.shake = 12*opt('shake'); };
 $('optNums').onchange = e => setOpt('nums', e.target.checked);
+$('optTips').onchange = e => { // turning tips back on shows them all again
+  setOpt('tips', e.target.checked);
+  if (e.target.checked) { Save.data.tips = {}; Save.write(); showNote('Tips will show again as you play.'); } else Tips.clear();
+};
 $('optCalm').onchange = e => setOpt('calm', e.target.checked);
 $('optSens').oninput = e => setOpt('sens', +e.target.value);
 $('optInvert').onchange = e => setOpt('invertY', e.target.checked);
@@ -3296,7 +3353,7 @@ $('nameIn').oninput = e => {
 
 function endGame(won) {
   if (!G.running) return;
-  G.running = false; G.won = won;
+  G.running = false; G.won = won; Tips.clear();
   const S = Save.data, R = REGIONS[G.region], next = REGIONS[G.region + 1];
   let unlockedNow = false;
   if (won) {
@@ -3408,7 +3465,7 @@ $('shareBtn').onclick = shareCard;
 
 function toTitle() {
   if (G && G.entry && !G.running) postScore(true); // finished runs are posted when you leave the results screen
-  G = null; P = null;
+  G = null; P = null; Tips.clear();
   for (const s of ['end', 'pause', 'levelup', 'hud', 'lbScreen', 'achScreen']) $(s).classList.add('hidden');
   $('bossbar').classList.add('hidden');
   $('title').classList.remove('hidden');
@@ -4105,6 +4162,7 @@ async function set3D(on) {
   V3.on = !!(Save.data.settings.mode3d && V3.ready);
   V3.chunk = null; stick = null; pointer = null; V3.look = null;
   updateViewButtons();
+  if (V3.on && G && G.running) Tips.show('three');
 }
 function updateViewButtons() {
   const want = Save.data.settings.mode3d;
