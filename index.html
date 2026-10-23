@@ -2074,8 +2074,15 @@ function killEnemy(e) {
 }
 
 function dropGem(x, y, v) {
-  if (G.gems.length > 350) { // merge into an existing gem so the screen doesn't flood
-    const g = G.gems[(Math.random()*G.gems.length)|0]; g.v += v; return;
+  if (G.gems.length > 350) { // too many lying around: merge, but never somewhere you can't see
+    let near = null, nd = 70*70, far = null, fd = -1;
+    for (const g of G.gems) {
+      if (g.mag) continue;
+      const d = (g.x - x)**2 + (g.y - y)**2; if (d < nd) { nd = d; near = g; }
+      const p = (g.x - P.x)**2 + (g.y - P.y)**2; if (p > fd) { fd = p; far = g; }
+    }
+    if (near) { near.v += v; return; } // a candy right next to this one soaks it up
+    if (far) { far.dead = true; v += far.v; G.gems.splice(G.gems.indexOf(far), 1); } // the one farthest from you moves here
   }
   G.gems.push({ x: x + (Math.random()-.5)*8, y: y + (Math.random()-.5)*8, v, mag:false });
 }
@@ -2424,7 +2431,7 @@ function behaviorOf(sp) {
   if (BOMBERS.has(sp.id)) return 'bomber';
   if (HEALERS.has(sp.id)) return 'healer';
   const h = (Math.imul(sp.id, 2654435761) >>> 0) % 100; // the same species always behaves the same way
-  if (h < 32 && sp.types.some(t => RANGED_TYPES.includes(t))) return 'shooter';
+  if (h < 22 && sp.types.some(t => RANGED_TYPES.includes(t))) return 'shooter';
   if (h >= 66 && h < 86 && sp.types.some(t => CHARGE_TYPES.includes(t))) return 'charger';
   return null;
 }
@@ -2434,9 +2441,13 @@ function behave(e, dt, sp, dx, dy, d) {
     case 'shooter':
       if (d < 220) sp *= -.55; else if (d < 340) sp *= .12; // back off, then hold at range
       e.bT -= dt;
-      if (e.bT <= 0 && d < 460) {
-        e.bT = 2.4 + Math.random()*1.4; e.flash = .1;
-        eshoot(e, Math.atan2(dy, dx) + (Math.random() - .5)*.15, 230, e.dmg*.55, e.types[0]);
+      if (e.bT <= 0 && d < 420) {
+        e.bT = 3.6 + Math.random()*2;
+        // only so many shots from regular Pokémon in the air at once
+        if (G.eprojs.reduce((n, p) => n + (p.grunt && !p.dead ? 1 : 0), 0) < 10) {
+          e.flash = .1;
+          eshoot(e, Math.atan2(dy, dx) + (Math.random() - .5)*.15, 200, e.dmg*.5, e.types[0]).grunt = true;
+        }
       }
       break;
     case 'charger':
@@ -2588,7 +2599,7 @@ function bossAttack(e, dt) {
   } else e.tele = { kind, t:.7, max:.7 };
 }
 function ring(e, n, sp, dmg, t) { const o = Math.random()*Math.PI; for (let i = 0; i < n; i++) eshoot(e, o + i*Math.PI*2/n, sp, dmg, t); }
-function eshoot(e, a, sp, dmg, t) { G.eprojs.push({ x:e.x, y:e.y, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp, r:8, dmg, type:t, life:5 }); }
+function eshoot(e, a, sp, dmg, t) { const p = { x:e.x, y:e.y, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp, r:8, dmg, type:t, life:5 }; G.eprojs.push(p); return p; }
 
 function updateProjs(dt) {
   for (const p of G.projs) {
