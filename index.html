@@ -340,6 +340,7 @@
       <label><span>Reduce flashing<small>No blinking, flickering or white hit flashes</small></span><input type="checkbox" id="optCalm"></label>
       <label><span>3D camera speed</span><input type="range" id="optSens" min="0.3" max="2.5" step="0.1"></label>
       <label><span>Invert 3D camera up/down</span><input type="checkbox" id="optInvert"></label>
+      <label><span>3D minimap</span><input type="checkbox" id="optMinimap"></label>
     </div>
     <p class="center" style="margin:14px 0 0"><button class="btn" data-close>Back</button></p>
   </div>
@@ -3022,14 +3023,14 @@ $('volMusic').oninput = e => { Save.data.settings.music = +e.target.value; Sound
 $('volSfx').oninput = e => { Save.data.settings.sfx = +e.target.value; Sound.applyVolumes(); Save.write(); Sound.sfx('select'); };
 
 // ---- settings: comfort and accessibility options (saved on this device) ----
-const OPT_DEF = { tips:true, shake:1, nums:true, calm:matchMedia('(prefers-reduced-motion: reduce)').matches, sens:1, invertY:false };
+const OPT_DEF = { minimap:true, tips:true, shake:1, nums:true, calm:matchMedia('(prefers-reduced-motion: reduce)').matches, sens:1, invertY:false };
 const opt = k => Save.data.settings[k] ?? OPT_DEF[k];
 const blink = (t, hz) => !opt('calm') && Math.floor(t*hz) % 2 === 1; // on/off flicker, off with "Reduce flashing"
 const wobble = T => opt('calm') ? 1 : 1 + Math.sin(T*30)*.05;
 function openSettings() {
   $('volMusic').value = Save.data.settings.music; $('volSfx').value = Save.data.settings.sfx;
   $('optTips').checked = opt('tips'); $('optShake').value = opt('shake'); $('optNums').checked = opt('nums'); $('optCalm').checked = opt('calm');
-  $('optSens').value = opt('sens'); $('optInvert').checked = opt('invertY');
+  $('optSens').value = opt('sens'); $('optInvert').checked = opt('invertY'); $('optMinimap').checked = opt('minimap');
   $('setScreen').classList.remove('hidden');
 }
 const setOpt = (k, v) => { Save.data.settings[k] = v; Save.write(); };
@@ -3042,6 +3043,7 @@ $('optTips').onchange = e => { // turning tips back on shows them all again
 $('optCalm').onchange = e => setOpt('calm', e.target.checked);
 $('optSens').oninput = e => setOpt('sens', +e.target.value);
 $('optInvert').onchange = e => setOpt('invertY', e.target.checked);
+$('optMinimap').onchange = e => setOpt('minimap', e.target.checked);
 $('setBtn').onclick = openSettings;
 $('setBtnPause').onclick = openSettings;
 
@@ -4092,6 +4094,52 @@ function render(now) {
   drawOverlay(cx, cy, rdt);
 }
 
+// 3D minimap: a radar that turns with the camera (straight up = the way you're looking)
+function drawMinimap() {
+  const small = W < 600, R = small ? 46 : 62, RANGE = 900;
+  // bottom-right, or under the pause button on touch screens (the JUMP button lives bottom-right)
+  const mx = W - R - 14, my = touchUsed ? (small ? 160 : 110) + R : H - R - 14;
+  const f0 = Math.cos(V3.yaw), f1 = Math.sin(V3.yaw), k = R/RANGE;
+  const toMap = (x, y) => { const vx = x - P.x, vy = y - P.y; return [mx + (vx*-f1 + vy*f0)*k, my - (vx*f0 + vy*f1)*k]; };
+  ctx.save();
+  ctx.fillStyle = 'rgba(16,24,40,.66)'; ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(mx, my, R, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+  ctx.clip();
+  ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(mx, my, R/2, 0, Math.PI*2); ctx.stroke();
+  // the trees you'd bump into, then pickups, wild Pokémon and the big ones on top
+  ctx.fillStyle = 'rgba(80,170,90,.6)';
+  for (const [x, z] of V3.trees || []) { const [a, b] = toMap(x, z); ctx.fillRect(a - 1.5, b - 1.5, 3, 3); }
+  for (const p of G.pickups) {
+    if (p.kind !== 'ball' && p.kind !== 'master' && p.kind !== 'berry') continue;
+    const [a, b] = toMap(p.x, p.y);
+    ctx.fillStyle = p.kind === 'master' ? '#c080ff' : p.kind === 'ball' ? '#ff5050' : '#60b0ff';
+    ctx.beginPath(); ctx.arc(a, b, 3, 0, Math.PI*2); ctx.fill();
+  }
+  const R2 = (RANGE*1.42)**2;
+  for (const e of G.enemies) {
+    if (e.dead || e.boss || e.roamer || (e.x - P.x)**2 + (e.y - P.y)**2 > R2) continue;
+    const [a, b] = toMap(e.x, e.y);
+    ctx.fillStyle = e.shiny ? '#ffd040' : e.elite ? '#ff9040' : 'rgba(255,90,90,.85)';
+    const s = e.shiny || e.elite ? 4 : 2; ctx.fillRect(a - s/2, b - s/2, s, s);
+  }
+  for (const e of [G.boss, G.roamer]) {
+    if (!e || e.dead) continue;
+    let [a, b] = toMap(e.x, e.y);
+    const d = Math.hypot(a - mx, b - my); if (d > R - 6) { a = mx + (a - mx)*(R - 6)/d; b = my + (b - my)*(R - 6)/d; } // pinned to the rim when far
+    ctx.fillStyle = e.roamer ? '#b070ff' : '#ff3030'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(a, b, 5, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+  }
+  for (const al of G.allies) { const [a, b] = toMap(al.x, al.y); ctx.fillStyle = '#80f0a0'; ctx.fillRect(a - 1.5, b - 1.5, 3, 3); }
+  ctx.restore();
+  // you: an arrow pointing the way you're facing
+  const fa = Math.atan2(-(P.fx*f0 + P.fy*f1), P.fx*-f1 + P.fy*f0);
+  ctx.save(); ctx.translate(mx, my); ctx.rotate(fa);
+  ctx.fillStyle = '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(7, 0); ctx.lineTo(-5, -5); ctx.lineTo(-3, 0); ctx.lineTo(-5, 5); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
+
 // screen-space layer shared by 2D and 3D: low-HP vignette, weather, touch joystick
 function drawOverlay(cx, cy, rdt) {
   const T = G.t;
@@ -4101,6 +4149,7 @@ function drawOverlay(cx, cy, rdt) {
     ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
   }
   drawWeather(cx, cy, G.paused || G.choosing ? 0 : rdt);
+  if (V3.on && opt('minimap')) drawMinimap();
   // an arrow at the screen edge pointing to a roaming legendary (or its Master Ball)
   const target = G.roamer || G.pickups.find(k => k.kind === 'master');
   if (target) {
@@ -4356,14 +4405,53 @@ function buildChunk(cgx, cgy) {
     const m = new T3.InstancedMesh(geo, mat, list.length);
     list.forEach(([x, z, s, rot], i) => { dummy.position.set(x, heightAt(x, z) - sink*s, z); dummy.rotation.set(0, rot, 0); dummy.scale.setScalar(s); dummy.updateMatrix(); m.setMatrixAt(i, dummy.matrix); });
     m.computeBoundingSphere(); V3.scene.add(m); V3.decor.push(m);
+    return m;
   };
   const [style, leaf, snowy] = TREES[R.key];
   const lam = c => new T3.MeshLambertMaterial({ color:c, flatShading:true });
-  V3.treeGeo[style].forEach((geo, i) => instanced(geo, lam(i === 0 ? '#7a5232' : style === 'pine' && i === 3 && snowy ? '#f4f8fc' : i >= 2 && snowy ? shade(leaf, .25) : leaf), trees));
+  // each tree part also gets a see-through copy: trees between the camera and you move into it
+  V3.trees = trees; V3.treeParts = []; V3.faded = new Set(); V3.treeMat = [];
+  V3.treeGeo[style].forEach((geo, i) => {
+    const color = i === 0 ? '#7a5232' : style === 'pine' && i === 3 && snowy ? '#f4f8fc' : i >= 2 && snowy ? shade(leaf, .25) : leaf;
+    const solid = instanced(geo, lam(color), trees);
+    if (!solid) return;
+    const ghost = new T3.InstancedMesh(geo, new T3.MeshLambertMaterial({ color, flatShading:true, transparent:true, opacity:.28, depthWrite:false }), MAX_FADED);
+    ghost.count = 0; ghost.frustumCulled = false; V3.scene.add(ghost); V3.decor.push(ghost);
+    V3.treeParts.push({ solid, ghost });
+  });
   instanced(V3.rockGeo, lam('#9a9aa6'), rocks.map(([x, z, s, r]) => [x, z, s*9, r]), .35);
   const tuftTex = canvasTex(TL.tallCut);
   instanced(V3.tuftGeo, new T3.MeshBasicMaterial({ map:tuftTex, alphaTest:.5, side:T3.DoubleSide }), tufts);
   V3.chunk = { gx:cgx, gy:cgy, region:G.region };
+}
+
+// trees standing between the camera and the player (or right next to you) turn see-through
+const MAX_FADED = 16, HIDDEN = new Float32Array(16); // an all-zero matrix: the solid copy vanishes
+function fadeTrees(cx, cz) {
+  if (!V3.trees || !V3.treeParts.length) return;
+  const px = P.x, pz = P.y, dx = px - cx, dz = pz - cz, L2 = dx*dx + dz*dz || 1;
+  const now = new Set();
+  for (let i = 0; i < V3.trees.length && now.size < MAX_FADED; i++) {
+    const [x, z, s] = V3.trees[i];
+    const t = ((x - cx)*dx + (z - cz)*dz)/L2; // how far along the camera→player line
+    if (t < 0 || t > 1.15) continue;
+    const qx = cx + dx*t - x, qz = cz + dz*t - z;
+    if (qx*qx + qz*qz < (30*s + 16)**2) now.add(i);
+  }
+  const same = now.size === V3.faded.size && [...now].every(i => V3.faded.has(i));
+  if (same) return;
+  for (const { solid, ghost } of V3.treeParts) {
+    // every part of a tree shares the same placement matrix, saved the first time it fades
+    for (const i of V3.faded) if (!now.has(i)) solid.setMatrixAt(i, V3.treeMat[i]);
+    let n = 0;
+    for (const i of now) {
+      if (!V3.treeMat[i]) { V3.treeMat[i] = new V3.T.Matrix4(); solid.getMatrixAt(i, V3.treeMat[i]); }
+      if (!V3.faded.has(i)) solid.instanceMatrix.array.set(HIDDEN, i*16);
+      ghost.setMatrixAt(n++, V3.treeMat[i]);
+    }
+    ghost.count = n; ghost.instanceMatrix.needsUpdate = true; solid.instanceMatrix.needsUpdate = true;
+  }
+  V3.faded = now;
 }
 
 // place a Pokémon sprite standing in the world (same choices as drawMon in 2D)
@@ -4415,6 +4503,7 @@ function render3D(now) {
   const D = 330, hd = D*Math.cos(V3.pitch), vh = D*Math.sin(V3.pitch), sh = G.shake*.6*opt('shake');
   cam.position.set(P.x - f0*hd + (Math.random() - .5)*sh, V3.camY + vh + 20, P.y - f1*hd + (Math.random() - .5)*sh);
   cam.lookAt(P.x + f0*40, V3.camY + 30, P.y + f1*40);
+  fadeTrees(cam.position.x, cam.position.z);
 
   for (const p of [V3.mons, V3.glows, V3.orbs, V3.items, V3.discs, V3.rings, V3.arcs, V3.boxes, V3.rocks]) p.begin();
   V3.shadowList = [];
