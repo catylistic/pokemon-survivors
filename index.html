@@ -2841,12 +2841,15 @@ function buildOptions() {
   for (const m of G.moves) if (m.lvl >= 6 && !m.evo && G.items[MOVES[m.key].evo.item]) opts.push({ w:1000, kind:'evo', key:m.key });
   for (const m of G.moves) if (m.lvl < 6) opts.push({ w:10, kind:'up', key:m.key });
   if (G.moves.length < 6) for (const k in MOVES) if (!owned.has(k)) opts.push({ w:4, kind:'new', key:k });
-  const nItems = Object.keys(G.items).length;
+  // type items (one per move type) don't use up the 6 slots for other held items,
+  // so every move can get its evolution item
+  const nItems = Object.keys(G.items).filter(k => !ITEMS[k].forType).length;
+  const waiting = new Set(G.moves.filter(m => m.lvl >= 6 && !m.evo).map(m => MOVES[m.key].evo.item));
   for (const k in ITEMS) {
     const it = ITEMS[k], lv = G.items[k] || 0;
-    if (lv >= it.max || (!lv && nItems >= 6)) continue;
-    if (it.forType && !ownedTypes.has(it.forType)) continue;
-    opts.push({ w: it.forType ? 7 : 5, kind:'item', key:k });
+    if (lv >= it.max) continue;
+    if (it.forType ? !ownedTypes.has(it.forType) : !lv && nItems >= 6) continue;
+    opts.push({ w: waiting.has(k) && !lv ? 80 : it.forType ? 7 : 5, kind:'item', key:k }); // a maxed move asks for its item
   }
   const out = [];
   while (out.length < 3 && opts.length) {
@@ -2876,7 +2879,7 @@ function optionHTML(o) {
   if (o.kind === 'item') {
     const it = ITEMS[o.key], lv = G.items[o.key] || 0;
     let desc = it.desc;
-    if (it.forType) { const mv = MOVES[MOVE_FOR_ITEM[o.key]]; desc = `${cap(it.forType)}-type moves deal +15% damage per level. Lets ${mv.name} evolve into ${mv.evo.name} at Lv 6.`; }
+    if (it.forType) { const mv = MOVES[MOVE_FOR_ITEM[o.key]]; desc = `${cap(it.forType)}-type moves deal +15% damage per level. Lets ${mv.name} evolve into ${mv.evo.name} at Lv 6. Doesn't use up a held-item slot.`; }
     return [itemIcon(o.key), `${it.name} ${lv ? `<span class="tag">Lv ${lv} → ${lv + 1}</span>` : '<span class="tag new">NEW</span>'}`, desc];
   }
   if (o.kind === 'heal') return [`<div class="ic"><img src="${itemURL('max-potion')}" alt=""></div>`, 'Max Potion', 'Fully restore HP.'];
